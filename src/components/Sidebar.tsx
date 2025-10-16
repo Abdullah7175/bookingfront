@@ -7,15 +7,20 @@ import {
   Users, 
   LogOut,
   ChevronRight,
-  Shield
+
 } from 'lucide-react';
+
+interface User {
+  name?: string;
+  role?: string;
+}
 
 interface SidebarProps {
   activeSection: string;
   setActiveSection: (section: string) => void;
   isSidebarOpen: boolean;
   setIsSidebarOpen: (open: boolean) => void;
-  user: any;
+  user: User;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -31,6 +36,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const adminMenuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'bookings', label: 'Bookings', icon: Calendar },
+    { id: 'booking-editor', label: 'New Booking', icon: Calendar }, // ← added
     { id: 'inquiries', label: 'Inquiries', icon: MessageSquare },
     { id: 'sale-agents', label: 'Sale Agents', icon: Users },
     // { id: 'admin-panel', label: 'Admin Panel', icon: Shield },
@@ -39,6 +45,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const agentMenuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'bookings', label: 'My Bookings', icon: Calendar },
+    { id: 'booking-editor', label: 'Create Booking', icon: Calendar }, // ← added
     { id: 'inquiries', label: 'My Inquiries', icon: MessageSquare },
   ];
 
