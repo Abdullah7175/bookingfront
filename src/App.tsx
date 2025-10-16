@@ -1,54 +1,61 @@
-import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { DataProvider } from './context/DataContext';
-import AuthScreen from './components/AuthScreen';
-import ContactPage from './pages/ContactPage';
-import Sidebar from './components/Sidebar';
-import AdminDashboard from './components/AdminDashboard';
-import AgentDashboard from './components/AgentDashboard';
-import Bookings from './components/Bookings';
-import Inquiries from './components/Inquiries';
-import SaleAgents from './components/SaleAgents';
-import AdminPanel from './components/AdminPanel';
-import { Menu, X } from 'lucide-react';
+import React, { useState } from "react";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { DataProvider } from "./context/DataContext";
+import AuthScreen from "./components/AuthScreen";
+import ContactPage from "./pages/ContactPage";
+import Sidebar from "./components/Sidebar";
+import AdminDashboard from "./components/AdminDashboard";
+import AgentDashboard from "./components/AgentDashboard";
+import Bookings from "./components/Bookings";
+import Inquiries from "./components/Inquiries";
+import SaleAgents from "./components/SaleAgents";
+import AdminPanel from "./components/AdminPanel";
+import { Menu, X } from "lucide-react";
+
+/** NEW: Booking Editor screen (matches client revision spec) */
+import BookingEditor from "./pages/booking/BookingEditor";
 
 const AppContent: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const [activeSection, setActiveSection] = useState("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
-  };
+  const toggleSidebar = () => setIsSidebarOpen((v) => !v);
 
   const renderContent = () => {
     // Admin sections
-    if (user?.role === 'admin') {
+    if (user?.role === "admin") {
       switch (activeSection) {
-        case 'dashboard':
+        case "dashboard":
           return <AdminDashboard />;
-        case 'bookings':
+        case "bookings":
           return <Bookings />;
-        case 'inquiries':
+        case "inquiries":
           return <Inquiries />;
-        case 'sale-agents':
+        case "sale-agents":
           return <SaleAgents />;
-        case 'admin-panel':
+        case "admin-panel":
           return <AdminPanel />;
+        /** NEW: open the Booking Editor */
+        case "booking-editor":
+          return <BookingEditor />;
         default:
           return <AdminDashboard />;
       }
     }
-    
+
     // Agent sections
     switch (activeSection) {
-      case 'dashboard':
+      case "dashboard":
         return <AgentDashboard />;
-      case 'bookings':
+      case "bookings":
         return <Bookings />;
-      case 'inquiries':
+      case "inquiries":
         return <Inquiries />;
+      /** NEW: agents can also open the Booking Editor (optional—keep if desired) */
+      case "booking-editor":
+        return <BookingEditor />;
       default:
         return <AgentDashboard />;
     }
@@ -67,7 +74,9 @@ const AppContent: React.FC = () => {
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">U</span>
           </div>
-          <h1 className="font-semibold text-gray-900 text-sm sm:text-base">Umrah Booking</h1>
+          <h1 className="font-semibold text-gray-900 text-sm sm:text-base">
+            Umrah Booking
+          </h1>
         </div>
         <button
           onClick={toggleSidebar}
@@ -94,9 +103,7 @@ const AppContent: React.FC = () => {
 
         {/* Main Content */}
         <main className="flex-1 lg:ml-64 p-3 sm:p-4 lg:p-8 min-h-screen">
-          <div className="max-w-7xl mx-auto">
-            {renderContent()}
-          </div>
+          <div className="max-w-7xl mx-auto">{renderContent()}</div>
         </main>
       </div>
 
@@ -119,6 +126,7 @@ function App() {
         <DataProvider>
           <Routes>
             <Route path="/contact" element={<ContactPage />} />
+            {/* Everything else goes to the authenticated shell */}
             <Route path="/*" element={<AppContent />} />
           </Routes>
         </DataProvider>
