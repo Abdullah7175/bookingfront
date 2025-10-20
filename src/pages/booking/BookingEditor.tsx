@@ -48,7 +48,7 @@ export default function BookingEditor() {
   /* ------------------------------- PNR ------------------------------- */
   const [pnr, setPnr] = useState<string>("");
   const onPnrChange = (v: string) => {
-    const cleaned = v.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 5);
+    const cleaned = v.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6);
     setPnr(cleaned);
   };
   const isPnrValid = pnr.length === 5;
@@ -177,6 +177,90 @@ export default function BookingEditor() {
     return items;
   }, [instStart, numInst, remaining, perInstallment]);
 
+  /* ----------------------- Save state & helpers (ADDED) ----------------------- */
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveOk, setSaveOk] = useState<string | null>(null);
+
+  // --- Booking Details (required by backend) ---
+  const [customerName, setCustomerName] = useState<string>("");
+  const [customerEmail, setCustomerEmail] = useState<string>("");
+  const [bookingPackage, setBookingPackage] = useState<string>(""); // maps to 'package'
+  const [travelDate, setTravelDate] = useState<string>("");         // ISO date string (yyyy-mm-dd)
+
+  const buildPayload = () => ({
+    // REQUIRED by backend
+    customerName,
+    customerEmail,
+    package: bookingPackage,
+    date: travelDate,
+
+    // existing structure
+    pnr,
+    flights: { raw: rawItinerary, itineraryLines },
+    hotels,
+    visas: { count: visaCount, passengers: visaPassengers },
+    transportation: { count: legCount, legs },
+    costing: { rows, totals },
+    flightPayments: {
+      mode: paymentMode,
+      creditCard:
+        paymentMode === "credit-card" ? { amount: ccAmount, paidOn: ccPaidOn } : null,
+      installment:
+        paymentMode === "installment"
+          ? {
+              ticketTotal: tixTotal,
+              advancePaid: advPaid,
+              numberOfInstallments: numInst,
+              startDate: instStart,
+              remaining,
+              perInstallment,
+              schedule: installmentSchedule,
+            }
+          : null,
+    },
+  });
+
+  const canSave = () => {
+    if (pnr.length !== 6) return false;
+    if (!customerName || !customerEmail || !bookingPackage || !travelDate) return false;
+    return true;
+  };
+
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:7000";
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+    setSaveOk(null);
+    try {
+      const token = localStorage.getItem("token"); // or get from your AuthContext
+
+      const res = await fetch(`${API_BASE}/api/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(buildPayload()),
+        // credentials: "include", // ← leave this OFF for pure Bearer-token auth
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `Request failed: ${res.status}`);
+      }
+      await res.json().catch(() => ({}));
+      setSaveOk("Booking saved successfully.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : typeof err === "string" ? err : "Failed to save booking.";
+      setSaveError(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /* --------------------------------- UI --------------------------------- */
   return (
     <div className="p-6 space-y-8">
@@ -185,12 +269,57 @@ export default function BookingEditor() {
         <div className="text-sm opacity-70">MtUmrah Admin</div>
       </header>
 
+      {/* Booking Details (required) */}
+      <section className="bg-white rounded-xl shadow p-5 space-y-4">
+        <h2 className="text-lg font-semibold">Booking Details</h2>
+        <div className="grid md:grid-cols-4 gap-3">
+          <div className="flex flex-col">
+            <label className="text-sm text-slate-600 mb-1">Customer Name *</label>
+            <input
+              className="border rounded-md p-2"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="e.g., Ahmed Ali"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-sm text-slate-600 mb-1">Customer Email *</label>
+            <input
+              type="email"
+              className="border rounded-md p-2"
+              value={customerEmail}
+              onChange={(e) => setCustomerEmail(e.target.value)}
+              placeholder="e.g., ahmed@example.com"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-sm text-slate-600 mb-1">Package *</label>
+            <input
+              className="border rounded-md p-2"
+              value={bookingPackage}
+              onChange={(e) => setBookingPackage(e.target.value)}
+              placeholder="e.g., Umrah Basic"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-sm text-slate-600 mb-1">Date *</label>
+            <input
+              type="date"
+              className="border rounded-md p-2"
+              value={travelDate}
+              onChange={(e) => setTravelDate(e.target.value)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-slate-500">Fields marked * are required to save.</p>
+      </section>
+
       {/* PNR (exactly 5 characters) */}
       <section className="bg-white rounded-xl shadow p-5 space-y-2">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">PNR</h2>
           <span className={`text-xs ${isPnrValid ? "text-green-600" : "text-slate-500"}`}>
-            {pnr.length}/5
+            {pnr.length}/6
           </span>
         </div>
         <input
@@ -200,11 +329,11 @@ export default function BookingEditor() {
           placeholder="ABCDE"
           value={pnr}
           onChange={(e) => onPnrChange(e.target.value)}
-          maxLength={5}
+          maxLength={6}
          
-          aria-label="PNR (5 characters)"
+          aria-label="PNR (6 characters)"
         />
-        <p className="text-xs text-slate-500">Enter exactly 5 letters/numbers. (Auto-uppercased)</p>
+        <p className="text-xs text-slate-500">Enter exactly 6 letters/numbers. (Auto-uppercased)</p>
       </section>
 
       {/* Flights */}
@@ -595,6 +724,34 @@ export default function BookingEditor() {
               </div>
             )}
           </div>
+        )}
+      </section>
+
+      {/* Save / Submit (ADDED) */}
+      <section className="bg-white rounded-xl shadow p-5 space-y-3">
+        {saveError && (
+          <div className="text-sm text-red-600 border border-red-200 rounded-md p-2">
+            {saveError}
+          </div>
+        )}
+        {saveOk && (
+          <div className="text-sm text-green-700 border border-green-200 rounded-md p-2">
+            {saveOk}
+          </div>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={saving || !canSave()}
+          className={`px-4 py-2 rounded-md text-white ${
+            saving || !canSave() ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"
+          }`}
+        >
+          {saving ? "Saving..." : "Save Booking"}
+        </button>
+        {!canSave() && (
+          <p className="text-xs text-slate-500">
+            Make sure PNR is exactly 6 characters (and any other required fields) before saving.
+          </p>
         )}
       </section>
     </div>
