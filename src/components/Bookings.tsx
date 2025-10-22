@@ -17,6 +17,7 @@ import {
   Edit,
   Trash2,
   Download,
+  Ticket,
 } from 'lucide-react';
 
 type UiBooking = {
@@ -28,10 +29,27 @@ type UiBooking = {
   departureDate: string; // YYYY-MM-DD or ''
   returnDate: string;    // YYYY-MM-DD or ''
   status: 'pending' | 'confirmed' | 'cancelled' | string;
-  amount: number;        // stored as number; format when rendering
+  amount: number;
   agentId?: string;
   agentName?: string;
   approvalStatus?: 'pending' | 'approved' | 'rejected' | string;
+
+  // NEW (optional display fields)
+  pnr?: string;
+  flightPaymentMethod?: 'credit_card' | 'installments' | string;
+
+  // enrichment used in card details (kept as any to be tolerant)
+  flight?: any;
+  hotel?: any;
+  visa?: any;
+  transport?: any;
+  payment?: any;
+  passengers?: any;
+  adults?: any;
+  children?: any;
+  paymentMethod?: any;
+  packagePrice?: any;
+  additionalServices?: any;
 };
 
 function formatDate(d?: string | null): string {
@@ -60,8 +78,7 @@ function currency(n: number) {
 
 /** Normalize API booking -> UI booking */
 function mapBooking(b: any): UiBooking {
-  // try both old & new fields safely
-  const id = b?._id || b?.id || crypto.randomUUID();
+  const id = b?._id || b?.id || (typeof crypto !== 'undefined' ? crypto.randomUUID() : String(Math.random()));
   const customer = b?.customerName ?? b?.customer ?? 'Unknown';
   const email = b?.customerEmail ?? b?.email ?? '';
   const phone = b?.contactNumber ?? b?.phone ?? '';
@@ -79,6 +96,11 @@ function mapBooking(b: any): UiBooking {
   const agentId = b?.agentId ?? b?.agent?._id ?? b?.agent?.id;
   const agentName = b?.agentName ?? b?.agent?.name ?? '';
 
+  // NEW: pnr & flightPaymentMethod (accept flat or nested)
+  const pnr = b?.pnr ?? b?.flight?.pnr ?? '';
+  const flightPaymentMethod =
+    b?.flightPaymentMethod ?? b?.flight?.paymentMethod ?? undefined;
+
   return {
     id,
     customer,
@@ -92,6 +114,8 @@ function mapBooking(b: any): UiBooking {
     agentId,
     agentName,
     approvalStatus,
+    pnr,
+    flightPaymentMethod,
     // Include detailed information for enhanced display
     flight: b?.flight,
     hotel: b?.hotel,
@@ -104,7 +128,7 @@ function mapBooking(b: any): UiBooking {
     paymentMethod: b?.paymentMethod,
     packagePrice: b?.packagePrice,
     additionalServices: b?.additionalServices,
-  } as any;
+  };
 }
 
 const Bookings: React.FC = () => {
@@ -127,7 +151,6 @@ const Bookings: React.FC = () => {
     try {
       const url = isAdmin ? '/api/bookings' : '/api/bookings/my';
       const { data } = await http.get(url);
-      // data can be array or {bookings: []}
       const list = Array.isArray(data) ? data : (data?.bookings ?? []);
       setBookings(list.map(mapBooking));
     } catch (e: any) {
@@ -147,14 +170,11 @@ const Bookings: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
-  // Accept the created object from BookingModal and refresh data
   const handleCreateBooking = async (created: any) => {
-    // Just add to local state for immediate feedback
     const ui = mapBooking(created);
     setBookings((prev) => [ui, ...prev]);
   };
 
-  // Deletion
   const handleDelete = async (id: string) => {
     const yes = window.confirm('Delete this booking?');
     if (!yes) return;
@@ -162,27 +182,21 @@ const Bookings: React.FC = () => {
     setBookings((p) => p.filter((b) => b.id !== id));
     try {
       await http.delete(`/api/bookings/${id}`);
-    } catch (e) {
-      // rollback on error
+    } catch {
       setBookings(prev);
       alert('Delete failed');
     }
   };
 
-  // Edit booking status
   const handleEdit = (booking: UiBooking) => {
     setEditingBooking(booking);
     setIsEditModalOpen(true);
   };
 
-  // Update booking status
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     try {
-      console.log(`Updating booking ${id} to status: ${newStatus}`);
       const response = await http.put(`/api/bookings/${id}`, { status: newStatus });
       const updatedBooking = response.data;
-      console.log('Server response:', updatedBooking);
-
       setBookings((prev) =>
         prev.map((b) => (b.id === id ? {
           ...b,
@@ -190,7 +204,6 @@ const Bookings: React.FC = () => {
           approvalStatus: updatedBooking.approvalStatus || b.approvalStatus
         } : b))
       );
-      console.log(`Updated booking ${id} - new approvalStatus: ${updatedBooking.approvalStatus}`);
       setIsEditModalOpen(false);
       setEditingBooking(null);
     } catch (error: any) {
@@ -199,14 +212,11 @@ const Bookings: React.FC = () => {
     }
   };
 
-  // Download PDF
   const handleDownloadPDF = async (bookingId: string) => {
     try {
       const response = await http.get(`/api/bookings/${bookingId}/pdf`, {
         responseType: 'blob'
       });
-      
-      // Create blob link to download
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -223,44 +233,27 @@ const Bookings: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'confirmed':
-        return 'bg-green-100 text-green-800';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
+      case 'confirmed': return 'bg-green-100 text-green-800';
+      case 'pending': return 'bg-yellow-100 text-yellow-800';
+      case 'cancelled': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'confirmed':
-        return <CheckCircle className="h-4 w-4" />;
-      case 'pending':
-        return <Clock className="h-4 w-4" />;
-      case 'cancelled':
-        return <XCircle className="h-4 w-4" />;
-      default:
-        return <Clock className="h-4 w-4" />;
+      case 'confirmed': return <CheckCircle className="h-4 w-4" />;
+      case 'pending': return <Clock className="h-4 w-4" />;
+      case 'cancelled': return <XCircle className="h-4 w-4" />;
+      default: return <Clock className="h-4 w-4" />;
     }
   };
 
   const displayBookings = useMemo(() => {
-    console.log('Bookings - user:', user);
-    console.log('Bookings - isAdmin:', isAdmin);
-    console.log('Bookings - bookings count:', bookings.length);
-    console.log('Bookings - first booking agentId:', bookings[0]?.agentId);
-    
-    // For agents, only show bookings they created
-    const filtered = isAdmin ? bookings : bookings.filter((b) => {
-      console.log('Filtering booking:', b.customer, 'agentId:', b.agentId, 'vs user.id:', user?.id, 'vs user.agentId:', user?.agentId);
+    const filteredByRole = isAdmin ? bookings : bookings.filter((b) => {
       return b.agentId === user?.id || b.agentId === user?.agentId;
     });
-    
-    console.log('Bookings - filtered count:', filtered.length);
-    return filtered;
+    return filteredByRole;
   }, [bookings, isAdmin, user]);
 
   const filteredBookings = displayBookings.filter((booking) => {
@@ -269,24 +262,20 @@ const Bookings: React.FC = () => {
       booking.customer.toLowerCase().includes(s) ||
       booking.id.toLowerCase().includes(s) ||
       booking.package.toLowerCase().includes(s) ||
-      booking.email.toLowerCase().includes(s);
+      booking.email.toLowerCase().includes(s) ||
+      (booking.pnr || '').toLowerCase().includes(s);
     const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  // Group bookings by customer email for better organization
   const groupedBookings = useMemo(() => {
     if (!groupByCustomer) return { 'All Bookings': filteredBookings };
-    
     const groups: { [key: string]: UiBooking[] } = {};
     filteredBookings.forEach(booking => {
       const customerKey = `${booking.customer} (${booking.email})`;
-      if (!groups[customerKey]) {
-        groups[customerKey] = [];
-      }
+      if (!groups[customerKey]) groups[customerKey] = [];
       groups[customerKey].push(booking);
     });
-    
     return groups;
   }, [filteredBookings, groupByCustomer]);
 
@@ -325,7 +314,7 @@ const Bookings: React.FC = () => {
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">{err}</div>
       )}
 
-      {/* Stats Cards */}
+      {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
           <div className="flex items-center">
@@ -388,7 +377,7 @@ const Bookings: React.FC = () => {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
             <input
               type="text"
-              placeholder="Search bookings..."
+              placeholder="Search bookings, PNR, email…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -431,154 +420,168 @@ const Bookings: React.FC = () => {
             )}
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
               {groupBookings.map((booking) => (
-          <div key={booking.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-md transition-shadow">
-            {/* Booking Header */}
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  <User className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">{booking.customer}</h3>
-                  <p className="text-xs sm:text-sm text-gray-500 truncate">{booking.id}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
-                <span className={`inline-flex items-center space-x-1 px-2 py-1 text-xs font-medium rounded-full max-w-full truncate ${getStatusColor(booking.status)}`}>
-                  {getStatusIcon(booking.status)}
-                  <span className="truncate">{booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}</span>
-                </span>
-              </div>
-            </div>
-
-            {/* Contact Info */}
-            <div className="space-y-2 mb-4">
-              <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600">
-                <Mail className="h-4 w-4" />
-                <span className="truncate">{booking.email}</span>
-              </div>
-              <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600">
-                <Phone className="h-4 w-4" />
-                <span>{booking.phone || '—'}</span>
-              </div>
-              <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600">
-                <MapPin className="h-4 w-4" />
-                <span className="truncate">{booking.package}</span>
-              </div>
-            </div>
-
-            {/* Detailed Information (if available) */}
-            {(booking as any).flight?.departureCity || (booking as any).hotel?.hotelName || (booking as any).visa?.visaType ? (
-              <div className="space-y-3 mb-4">
-                {/* Flight Info */}
-                {(booking as any).flight?.departureCity && (
-                  <div className="bg-blue-50 rounded-lg p-3">
-                    <h4 className="text-xs font-semibold text-blue-900 mb-2">Flight Details</h4>
-                    <div className="text-xs text-blue-800">
-                      <p><span className="font-medium">Route:</span> {(booking as any).flight.departureCity} → {(booking as any).flight.arrivalCity}</p>
-                      <p><span className="font-medium">Class:</span> {(booking as any).flight.flightClass?.charAt(0).toUpperCase() + (booking as any).flight.flightClass?.slice(1)}</p>
+                <div key={booking.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-md transition-shadow">
+                  {/* Booking Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <User className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">{booking.customer}</h3>
+                        <p className="text-xs sm:text-sm text-gray-500 truncate">{booking.id}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
+                      <span className={`inline-flex items-center space-x-1 px-2 py-1 text-xs font-medium rounded-full max-w-full truncate ${getStatusColor(booking.status)}`}>
+                        {getStatusIcon(booking.status)}
+                        <span className="truncate">{booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}</span>
+                      </span>
                     </div>
                   </div>
-                )}
 
-                {/* Hotel Info */}
-                {(booking as any).hotel?.hotelName && (
-                  <div className="bg-green-50 rounded-lg p-3">
-                    <h4 className="text-xs font-semibold text-green-900 mb-2">Hotel Details</h4>
-                    <div className="text-xs text-green-800">
-                      <p><span className="font-medium">Hotel:</span> {(booking as any).hotel.hotelName}</p>
-                      <p><span className="font-medium">Room:</span> {(booking as any).hotel.roomType}</p>
+                  {/* Contact Info */}
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600">
+                      <Mail className="h-4 w-4" />
+                      <span className="truncate">{booking.email}</span>
                     </div>
-                  </div>
-                )}
+                    <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600">
+                      <Phone className="h-4 w-4" />
+                      <span>{booking.phone || '—'}</span>
+                    </div>
+                    <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600">
+                      <MapPin className="h-4 w-4" />
+                      <span className="truncate">{booking.package}</span>
+                    </div>
 
-                {/* Visa Info */}
-                {(booking as any).visa?.visaType && (
-                  <div className="bg-purple-50 rounded-lg p-3">
-                    <h4 className="text-xs font-semibold text-purple-900 mb-2">Visa Details</h4>
-                    <div className="text-xs text-purple-800">
-                      <p><span className="font-medium">Type:</span> {(booking as any).visa.visaType?.charAt(0).toUpperCase() + (booking as any).visa.visaType?.slice(1)}</p>
-                      {(booking as any).visa.nationality && (
-                        <p><span className="font-medium">Nationality:</span> {(booking as any).visa.nationality}</p>
+                    {/* Show PNR if present */}
+                    {!!booking.pnr && (
+                      <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600">
+                        <Ticket className="h-4 w-4" />
+                        <span>PNR: <span className="font-medium">{booking.pnr}</span></span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Detailed Information */}
+                  {(booking as any).flight?.departureCity || (booking as any).hotel?.hotelName || (booking as any).visa?.visaType ? (
+                    <div className="space-y-3 mb-4">
+                      {/* Flight Info */}
+                      {(booking as any).flight?.departureCity && (
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <h4 className="text-xs font-semibold text-blue-900 mb-2">Flight Details</h4>
+                          <div className="text-xs text-blue-800">
+                            <p><span className="font-medium">Route:</span> {(booking as any).flight.departureCity} → {(booking as any).flight.arrivalCity}</p>
+                            <p><span className="font-medium">Class:</span> {(booking as any).flight.flightClass?.charAt(0).toUpperCase() + (booking as any).flight.flightClass?.slice(1)}</p>
+                            {(booking as any).flight?.pnr && (
+                              <p><span className="font-medium">PNR:</span> {(booking as any).flight.pnr}</p>
+                            )}
+                            {(booking as any).flight?.paymentMethod && (
+                              <p><span className="font-medium">Flight Payment:</span> {(booking as any).flight.paymentMethod === 'installments' ? 'Installments' : 'Credit Card'}</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Hotel Info */}
+                      {(booking as any).hotel?.hotelName && (
+                        <div className="bg-green-50 rounded-lg p-3">
+                          <h4 className="text-xs font-semibold text-green-900 mb-2">Hotel Details</h4>
+                          <div className="text-xs text-green-800">
+                            <p><span className="font-medium">Hotel:</span> {(booking as any).hotel.hotelName}</p>
+                            <p><span className="font-medium">Room:</span> {(booking as any).hotel.roomType}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Visa Info */}
+                      {(booking as any).visa?.visaType && (
+                        <div className="bg-purple-50 rounded-lg p-3">
+                          <h4 className="text-xs font-semibold text-purple-900 mb-2">Visa Details</h4>
+                          <div className="text-xs text-purple-800">
+                            <p><span className="font-medium">Type:</span> {(booking as any).visa.visaType?.charAt(0).toUpperCase() + (booking as any).visa.visaType?.slice(1)}</p>
+                            {(booking as any).visa.nationality && (
+                              <p><span className="font-medium">Nationality:</span> {(booking as any).visa.nationality}</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Transport Info */}
+                      {(booking as any).transport?.transportType && (
+                        <div className="bg-orange-50 rounded-lg p-3">
+                          <h4 className="text-xs font-semibold text-orange-900 mb-2">Transport Details</h4>
+                          <div className="text-xs text-orange-800">
+                            <p><span className="font-medium">Type:</span> {(booking as any).transport.transportType?.charAt(0).toUpperCase() + (booking as any).transport.transportType?.slice(1)}</p>
+                            {(booking as any).transport.pickupLocation && (
+                              <p><span className="font-medium">Pickup:</span> {(booking as any).transport.pickupLocation}</p>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
-                  </div>
-                )}
+                  ) : null}
 
-                {/* Transport Info */}
-                {(booking as any).transport?.transportType && (
-                  <div className="bg-orange-50 rounded-lg p-3">
-                    <h4 className="text-xs font-semibold text-orange-900 mb-2">Transport Details</h4>
-                    <div className="text-xs text-orange-800">
-                      <p><span className="font-medium">Type:</span> {(booking as any).transport.transportType?.charAt(0).toUpperCase() + (booking as any).transport.transportType?.slice(1)}</p>
-                      {(booking as any).transport.pickupLocation && (
-                        <p><span className="font-medium">Pickup:</span> {(booking as any).transport.pickupLocation}</p>
-                      )}
+                  {/* Travel Dates */}
+                  <div className="bg-gray-50 rounded-lg p-3 mb-4">
+                    <div className="grid grid-cols-2 gap-4 text-xs sm:text-sm">
+                      <div>
+                        <p className="text-gray-500 mb-1">Departure</p>
+                        <p className="font-medium text-gray-900">{booking.departureDate || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 mb-1">Return</p>
+                        <p className="font-medium text-gray-900">{booking.returnDate || '—'}</p>
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
-            ) : null}
 
-            {/* Travel Dates */}
-            <div className="bg-gray-50 rounded-lg p-3 mb-4">
-              <div className="grid grid-cols-2 gap-4 text-xs sm:text-sm">
-                <div>
-                  <p className="text-gray-500 mb-1">Departure</p>
-                  <p className="font-medium text-gray-900">{booking.departureDate || '—'}</p>
+                  {/* Amount and Agent */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-xs sm:text-sm text-gray-500">Amount</p>
+                      <p className="text-lg sm:text-xl font-bold text-gray-900">{currency(booking.amount)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs sm:text-sm text-gray-500">Agent</p>
+                      <p className="text-xs sm:text-sm font-medium text-gray-900">{booking.agentName || '—'}</p>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleDownloadPDF(booking.id)}
+                      className="flex-1 px-3 py-2 text-xs sm:text-sm font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
+                    >
+                      <Download className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span>PDF</span>
+                    </button>
+                    <button
+                      onClick={() => handleEdit(booking)}
+                      className="flex-1 px-3 py-2 text-xs sm:text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
+                    >
+                      <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(booking.id)}
+                      className="flex-1 px-3 py-2 text-xs sm:text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
+                    >
+                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+
+                  {/* Approval Status */}
+                  {booking.approvalStatus === 'pending' && (
+                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-xs text-yellow-800 font-medium">Pending Admin Approval</p>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <p className="text-gray-500 mb-1">Return</p>
-                  <p className="font-medium text-gray-900">{booking.returnDate || '—'}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Amount and Agent */}
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-xs sm:text-sm text-gray-500">Amount</p>
-                <p className="text-lg sm:text-xl font-bold text-gray-900">{currency(booking.amount)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs sm:text-sm text-gray-500">Agent</p>
-                <p className="text-xs sm:text-sm font-medium text-gray-900">{booking.agentName || '—'}</p>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex space-x-2">
-              <button
-                onClick={() => handleDownloadPDF(booking.id)}
-                className="flex-1 px-3 py-2 text-xs sm:text-sm font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
-              >
-                <Download className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span>PDF</span>
-              </button>
-              <button
-                onClick={() => handleEdit(booking)}
-                className="flex-1 px-3 py-2 text-xs sm:text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
-              >
-                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span>Edit</span>
-              </button>
-              <button
-                onClick={() => handleDelete(booking.id)}
-                className="flex-1 px-3 py-2 text-xs sm:text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
-              >
-                <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span>Delete</span>
-              </button>
-            </div>
-
-            {/* Approval Status */}
-            {booking.approvalStatus === 'pending' && (
-              <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-xs text-yellow-800 font-medium">Pending Admin Approval</p>
-              </div>
-            )}
-          </div>
-        ))}
+              ))}
             </div>
           </div>
         ))}
@@ -610,7 +613,6 @@ const Bookings: React.FC = () => {
         isOpen={isBookingModalOpen}
         onClose={() => {
           setIsBookingModalOpen(false);
-          // Refresh data when modal closes to ensure we have all bookings
           fetchBookings();
         }}
         onSubmit={handleCreateBooking}
@@ -623,7 +625,7 @@ const Bookings: React.FC = () => {
             <div className="bg-blue-600 text-white p-4 sm:p-6">
               <h2 className="text-xl font-bold">Edit Booking Status</h2>
               <p className="text-blue-100 text-sm mt-1">
-                Booking: {editingBooking.customer} - {editingBooking.package}
+                Booking: {editingBooking.customer} {editingBooking.pnr ? `(PNR: ${editingBooking.pnr})` : ''} - {editingBooking.package}
               </p>
             </div>
 

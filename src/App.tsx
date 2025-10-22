@@ -13,8 +13,8 @@ import SaleAgents from "./components/SaleAgents";
 import AdminPanel from "./components/AdminPanel";
 import { Menu, X } from "lucide-react";
 
-/** NEW: Booking Editor screen (matches client revision spec) */
-import BookingEditor from "./pages/booking/BookingEditor";
+
+
 
 const AppContent: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -37,9 +37,7 @@ const AppContent: React.FC = () => {
           return <SaleAgents />;
         case "admin-panel":
           return <AdminPanel />;
-        /** NEW: open the Booking Editor */
-        case "booking-editor":
-          return <BookingEditor />;
+      
         default:
           return <AdminDashboard />;
       }
@@ -54,8 +52,7 @@ const AppContent: React.FC = () => {
       case "inquiries":
         return <Inquiries />;
       /** NEW: agents can also open the Booking Editor (optional—keep if desired) */
-      case "booking-editor":
-        return <BookingEditor />;
+   
       default:
         return <AgentDashboard />;
     }
