@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, User, CreditCard, Plane, Building, MapPin, Car, DollarSign, ArrowRightLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { http } from '../lib/http';
@@ -24,15 +24,16 @@ export interface BookingFormData {
   // Flights
   departureCity: string;
   arrivalCity: string;
-  departureDate: string;
-  returnDate: string;
+  departureDate: string; // YYYY-MM-DD
+  returnDate: string; // YYYY-MM-DD
   flightClass: 'economy' | 'business' | 'first';
+  pnr?: string; // 6 alphanumeric
 
   // Hotels
   hotelName: string;
   roomType: string;
-  checkIn: string;
-  checkOut: string;
+  checkIn: string; // YYYY-MM-DD
+  checkOut: string; // YYYY-MM-DD
 
   // Visa
   visaType: 'umrah' | 'hajj' | 'tourist';
@@ -51,27 +52,27 @@ export interface BookingFormData {
 
   // Backend required additions
   package?: string; // REQUIRED by backend
-  date?: string;    // REQUIRED by backend (booking date)
+  date?: string; // REQUIRED by backend (booking date)
 }
 
 export const steps: { id: StepId; title: string; icon: React.ComponentType<any> }[] = [
-  { id: 'contact',   title: 'Contact Info', icon: User },
-  { id: 'credit',    title: 'Credit Card',  icon: CreditCard },
-  { id: 'flights',   title: 'Flights',      icon: Plane },
-  { id: 'hotels',    title: 'Hotels',       icon: Building },
-  { id: 'visa',      title: 'Visa(s)',      icon: MapPin },
+  { id: 'contact', title: 'Contact Info', icon: User },
+  { id: 'credit', title: 'Credit Card', icon: CreditCard },
+  { id: 'flights', title: 'Flights', icon: Plane },
+  { id: 'hotels', title: 'Hotels', icon: Building },
+  { id: 'visa', title: 'Visa(s)', icon: MapPin },
   { id: 'transport', title: 'Transportation', icon: Car },
-  { id: 'costing',   title: 'Costing',      icon: DollarSign },
+  { id: 'costing', title: 'Costing', icon: DollarSign },
 ];
 
-function toNumber(v: string) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
 function isoOrNull(v?: string | null) {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.valueOf()) ? null : d.toISOString();
+}
+
+function sanitizePNR(v: string) {
+  return v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 }
 
 /** 🔧 Exported: validate current step (pure) */
@@ -93,6 +94,12 @@ export function validateStepData(formData: BookingFormData, id: StepId): Record<
     if (!formData.returnDate) e.returnDate = 'Return date is required';
     // Booking Date (backend "date")
     if (!formData.date) e.date = 'Booking date is required';
+    // PNR strict check (required and exactly 6 alphanumeric)
+    if (!formData.pnr?.trim()) {
+      e.pnr = 'PNR is required';
+    } else if (!/^[A-Z0-9]{6}$/.test(formData.pnr.trim())) {
+      e.pnr = 'PNR must be exactly 6 letters/numbers (e.g. ABC12D)';
+    }
   }
   if (id === 'costing') {
     if (!formData.totalAmount?.trim()) e.totalAmount = 'Total amount is required';
@@ -101,15 +108,14 @@ export function validateStepData(formData: BookingFormData, id: StepId): Record<
   return e;
 }
 
-/** 🔧 Exported: build API payload (pure) — maps to backend-required keys */
+/** 🔧 Exported: build API payload (pure) — maps to backend-required keys and matches new list UI expectations */
 export function buildBookingPayload(formData: BookingFormData, user: any) {
-  const agentId =
-    user?.agentId ?? user?.id ?? user?._id ?? (formData.agent || undefined);
+  const agentId = user?.agentId ?? user?.id ?? user?._id ?? (formData.agent || undefined);
 
   // Required by backend schema - ensure they're not empty
-  const customerName  = formData.name?.trim() || '';
+  const customerName = formData.name?.trim() || '';
   const customerEmail = formData.email?.trim() || '';
-  const pkg           = formData.package?.trim() || '';
+  const pkg = formData.package?.trim() || '';
   const bookingDateIso =
     isoOrNull(formData.date) ||
     isoOrNull(formData.departureDate) ||
@@ -126,7 +132,21 @@ export function buildBookingPayload(formData: BookingFormData, user: any) {
     throw new Error('Package is required');
   }
 
-  return {
+  // Normalize numeric strings
+  const toNumberMaybe = (v: any) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    if (typeof v === 'string') {
+      const n = Number(v.replace?.(/[$,]/g, '') ?? v);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
+
+  const totalAmountNum = toNumberMaybe(formData.totalAmount);
+  const packagePriceNum = toNumberMaybe(formData.packagePrice);
+
+  // Build nested payload to align with Bookings.mapBooking()
+  const payload = {
     // ---- CUSTOMER INFORMATION
     customerName,
     customerEmail,
@@ -134,48 +154,93 @@ export function buildBookingPayload(formData: BookingFormData, user: any) {
     passengers: formData.passengers || '',
     adults: formData.adults || '',
     children: formData.children || '',
-    
-    // ---- PACKAGE INFORMATION
+
+    // ---- IDENTIFIERS / GROUPING
+    agentId,
+    customerGroup: customerEmail, // Use email for grouping same customer bookings
+
+    // ---- PACKAGE / PRICING
     package: pkg,
-    packagePrice: formData.packagePrice || '',
+    pricing: {
+      packageName: pkg,
+      packagePrice: packagePriceNum,
+      additionalServices: formData.additionalServices || '',
+      totalAmount: totalAmountNum,
+      paymentMethod: formData.paymentMethod || 'credit_card',
+    },
+    // keep legacy top-level for backward compatibility
+    packagePrice: packagePriceNum,
     additionalServices: formData.additionalServices || '',
-    totalAmount: formData.totalAmount || '',
+    totalAmount: totalAmountNum,
     paymentMethod: formData.paymentMethod || 'credit_card',
-    
+    amount: totalAmountNum,
+
     // ---- TRAVEL DATES
     date: bookingDateIso,
-    departureDate: isoOrNull(formData.departureDate) || '',
-    returnDate: isoOrNull(formData.returnDate) || '',
-    
-    // ---- FLIGHT INFORMATION
-    departureCity: formData.departureCity || '',
-    arrivalCity: formData.arrivalCity || '',
-    flightClass: formData.flightClass || 'economy',
-    
+    departureDate: isoOrNull(formData.departureDate) || '', // legacy
+    returnDate: isoOrNull(formData.returnDate) || '', // legacy
+
+    // ---- FLIGHT INFORMATION (nested + legacy)
+    flight: {
+      departureCity: formData.departureCity || '',
+      arrivalCity: formData.arrivalCity || '',
+      departureDate: isoOrNull(formData.departureDate) || '',
+      returnDate: isoOrNull(formData.returnDate) || '',
+      flightClass: formData.flightClass || 'economy',
+      pnr: formData.pnr || '',
+    },
+    departureCity: formData.departureCity || '', // legacy
+    arrivalCity: formData.arrivalCity || '', // legacy
+    flightClass: formData.flightClass || 'economy', // legacy
+
     // ---- HOTEL INFORMATION
-    hotelName: formData.hotelName || '',
-    roomType: formData.roomType || '',
-    checkIn: isoOrNull(formData.checkIn) || '',
-    checkOut: isoOrNull(formData.checkOut) || '',
-    
+    hotel: {
+      hotelName: formData.hotelName || '',
+      roomType: formData.roomType || '',
+      checkIn: isoOrNull(formData.checkIn) || '',
+      checkOut: isoOrNull(formData.checkOut) || '',
+    },
+    hotelName: formData.hotelName || '', // legacy
+    roomType: formData.roomType || '', // legacy
+    checkIn: isoOrNull(formData.checkIn) || '', // legacy
+    checkOut: isoOrNull(formData.checkOut) || '', // legacy
+
     // ---- VISA INFORMATION
-    visaType: formData.visaType || 'umrah',
-    passportNumber: formData.passportNumber || '',
-    nationality: formData.nationality || '',
-    
+    visa: {
+      visaType: formData.visaType || 'umrah',
+      passportNumber: formData.passportNumber || '',
+      nationality: formData.nationality || '',
+    },
+    visaType: formData.visaType || 'umrah', // legacy
+    passportNumber: formData.passportNumber || '', // legacy
+    nationality: formData.nationality || '', // legacy
+
     // ---- TRANSPORT INFORMATION
-    transportType: formData.transportType || 'bus',
-    pickupLocation: formData.pickupLocation || '',
-    
-    // ---- PAYMENT INFORMATION
-    cardNumber: formData.cardNumber || '',
-    expiryDate: formData.expiryDate || '',
-    cvv: formData.cvv || '',
-    cardholderName: formData.cardholderName || '',
-    
-    // ---- CUSTOMER GROUPING
-    customerGroup: customerEmail, // Use email for grouping same customer bookings
+    transport: {
+      transportType: formData.transportType || 'bus',
+      pickupLocation: formData.pickupLocation || '',
+    },
+    transportType: formData.transportType || 'bus', // legacy
+    pickupLocation: formData.pickupLocation || '', // legacy
+
+    // ---- PAYMENT (tokenized/masked)
+    payment: {
+      method: formData.paymentMethod || 'credit_card',
+      cardLast4: (formData.cardNumber || '').replace(/\D/g, '').slice(-4),
+      cardholderName: formData.cardholderName || '',
+      expiryDate: formData.expiryDate || '',
+    },
+    cardNumber: (formData.cardNumber || ''), // legacy — server should ignore full PAN
+    expiryDate: formData.expiryDate || '', // legacy
+    cvv: formData.cvv || '', // legacy — server should ignore
+    cardholderName: formData.cardholderName || '', // legacy
+
+    // ---- STATUS
+    status: 'pending',
+    approvalStatus: 'pending',
   };
+
+  return payload as any;
 }
 
 interface BookingModalProps {
@@ -194,42 +259,38 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
   const [bookings, setBookings] = useState<BookingFormData[]>([]);
   const [currentBookingIndex, setCurrentBookingIndex] = useState(0);
 
-  const [formData, setFormData] = useState<BookingFormData>({
+  const empty: BookingFormData = {
     name: '', passengers: '', adults: '', children: '', email: '', contactNumber: '', agent: '',
     cardNumber: '', expiryDate: '', cvv: '', cardholderName: '',
-    departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy',
+    departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy', pnr: '',
     hotelName: '', roomType: '', checkIn: '', checkOut: '',
     visaType: 'umrah', passportNumber: '', nationality: '',
     transportType: 'bus', pickupLocation: '',
     packagePrice: '', additionalServices: '', totalAmount: '', paymentMethod: 'credit_card',
-    // NEW required fields for backend:
-    package: '',
-    date: '',
-  });
+    package: '', date: '',
+  };
 
   // Initialize with first booking
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen && bookings.length === 0) {
-      const initialBooking: BookingFormData = {
-        name: '', passengers: '', adults: '', children: '', email: '', contactNumber: '', agent: '',
-        cardNumber: '', expiryDate: '', cvv: '', cardholderName: '',
-        departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy',
-        hotelName: '', roomType: '', checkIn: '', checkOut: '',
-        visaType: 'umrah', passportNumber: '', nationality: '',
-        transportType: 'bus', pickupLocation: '',
-        packagePrice: '', additionalServices: '', totalAmount: '', paymentMethod: 'credit_card',
-        package: '',
-        date: '',
-      };
-      setBookings([initialBooking]);
-      setFormData(initialBooking);
+      setBookings([empty]);
+      setFormData(empty);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, bookings.length]);
+
+  const [formData, setFormData] = useState<BookingFormData>(empty);
 
   const step = steps[currentStep];
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    let { value } = e.target as HTMLInputElement;
+
+    if (name === 'pnr') {
+      value = sanitizePNR(value);
+    }
+
     const updatedFormData = { ...formData, [name]: value };
     setFormData(updatedFormData);
 
@@ -265,7 +326,8 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
 
   const addAnotherBooking = () => {
     const newBooking: BookingFormData = {
-      name: formData.name, // Copy contact info
+      // Copy contact & payment basics so user doesn't retype
+      name: formData.name,
       passengers: formData.passengers,
       adults: formData.adults,
       children: formData.children,
@@ -276,34 +338,22 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
       expiryDate: formData.expiryDate,
       cvv: formData.cvv,
       cardholderName: formData.cardholderName,
-      departureCity: '', // Reset flight info
-      arrivalCity: '',
-      departureDate: '',
-      returnDate: '',
-      flightClass: 'economy',
-      hotelName: '',
-      roomType: '',
-      checkIn: '',
-      checkOut: '',
-      visaType: 'umrah',
-      passportNumber: '',
-      nationality: '',
-      transportType: 'bus',
-      pickupLocation: '',
-      packagePrice: '',
-      additionalServices: '',
-      totalAmount: '',
-      paymentMethod: 'credit_card',
-      package: '',
-      date: '',
+
+      // Reset trip-specific
+      departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy', pnr: '',
+      hotelName: '', roomType: '', checkIn: '', checkOut: '',
+      visaType: 'umrah', passportNumber: '', nationality: '',
+      transportType: 'bus', pickupLocation: '',
+      packagePrice: '', additionalServices: '', totalAmount: '', paymentMethod: 'credit_card',
+      package: '', date: '',
     };
 
     setBookings(prev => [...prev, newBooking]);
     setCurrentBookingIndex(bookings.length);
     setFormData(newBooking);
-    setCurrentStep(0); // Go to first step (Customer Info)
-    setErrors({}); // Clear any validation errors
-    setServerError(''); // Clear server errors
+    setCurrentStep(0);
+    setErrors({});
+    setServerError('');
   };
 
   const switchToBooking = (index: number) => {
@@ -314,19 +364,8 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
   };
 
   const resetForm = () => {
-    const initialBooking: BookingFormData = {
-      name: '', passengers: '', adults: '', children: '', email: '', contactNumber: '', agent: '',
-      cardNumber: '', expiryDate: '', cvv: '', cardholderName: '',
-      departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy',
-      hotelName: '', roomType: '', checkIn: '', checkOut: '',
-      visaType: 'umrah', passportNumber: '', nationality: '',
-      transportType: 'bus', pickupLocation: '',
-      packagePrice: '', additionalServices: '', totalAmount: '', paymentMethod: 'credit_card',
-      package: '', date: '',
-    };
-
-    setBookings([initialBooking]);
-    setFormData(initialBooking);
+    setBookings([empty]);
+    setFormData(empty);
     setCurrentBookingIndex(0);
     setCurrentStep(0);
     setErrors({});
@@ -352,27 +391,27 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
       arrivalCity: 'Jeddah',
       departureDate: today.toISOString().slice(0, 10),
       returnDate: nextWeek.toISOString().slice(0, 10),
-      flightClass: 'economy' as const,
+      flightClass: 'economy',
+      pnr: 'ABC12D',
       hotelName: 'Hilton',
       roomType: 'double',
       checkIn: today.toISOString().slice(0, 10),
       checkOut: nextWeek.toISOString().slice(0, 10),
-      visaType: 'umrah' as const,
+      visaType: 'umrah',
       passportNumber: 'AB1234567',
       nationality: 'PK',
-      transportType: 'bus' as const,
+      transportType: 'bus',
       pickupLocation: 'Jeddah Airport',
       packagePrice: '1200',
       additionalServices: 'Zamzam water, Ziyarah',
       totalAmount: '1500',
-      paymentMethod: 'credit_card' as const,
-      package: '7N Umrah Standard', // This is REQUIRED
-      date: today.toISOString().slice(0, 10), // Booking date - also REQUIRED
+      paymentMethod: 'credit_card',
+      package: '7N Umrah Standard',
+      date: today.toISOString().slice(0, 10),
     };
 
     setFormData((prev) => ({ ...prev, ...testData }));
 
-    // Update the current booking in the bookings array
     setBookings(prev => prev.map((booking, index) =>
       index === currentBookingIndex ? { ...booking, ...testData } : booking
     ));
@@ -381,15 +420,17 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    // Validate all bookings before submission
+    // Validate *all* bookings (flights + costing requirements)
     for (let i = 0; i < bookings.length; i++) {
-      const booking = bookings[i];
-      const errors = validateStepData(booking, 'costing'); // Validate costing step which has required fields
+      const b = bookings[i];
+      const flightErrors = validateStepData(b, 'flights');
+      const costingErrors = validateStepData(b, 'costing');
+      const errorsCombined = { ...flightErrors, ...costingErrors };
 
-      if (Object.keys(errors).length > 0) {
+      if (Object.keys(errorsCombined).length > 0) {
         setCurrentBookingIndex(i);
-        setFormData(booking);
-        setErrors(errors);
+        setFormData(b);
+        setErrors(errorsCombined);
         setServerError(`Please complete all required fields for Booking ${i + 1}`);
         return;
       }
@@ -398,15 +439,13 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
     setSubmitting(true);
     setServerError('');
     try {
-      // Submit all bookings
-      const createdBookings = [];
+      const createdBookings: any[] = [];
       for (const booking of bookings) {
         const bookingPayload = buildBookingPayload(booking, user);
         const res = await http.post('/api/bookings', bookingPayload);
         createdBookings.push(res.data);
       }
 
-      // Call onSubmit for each created booking
       createdBookings.forEach(booking => onSubmit?.(booking));
 
       resetForm();
@@ -699,8 +738,8 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                     {errors.returnDate && <p className="text-red-500 text-xs mt-1">{errors.returnDate}</p>}
                   </div>
 
-                  {/* NEW: Booking Date (backend "date") */}
-                  <div className="sm:col-span-2">
+                  {/* Booking Date */}
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Booking Date</label>
                     <input
                       data-testid="bookingDate"
@@ -710,6 +749,20 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                       }`}
                     />
                     {errors.date && <p className="text-red-500 text-xs mt-1">{errors.date}</p>}
+                  </div>
+
+                  {/* PNR */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">PNR <span className="text-gray-400">(6 alphanumeric)</span></label>
+                    <input
+                      data-testid="pnr"
+                      type="text" name="pnr" value={formData.pnr || ''} onChange={handleInputChange}
+                      placeholder="e.g. ABC12D"
+                      className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                        errors.pnr ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
+                      }`}
+                    />
+                    {errors.pnr && <p className="text-red-500 text-xs mt-1">{errors.pnr}</p>}
                   </div>
 
                   <div className="sm:col-span-2">
@@ -836,7 +889,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                   </button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* NEW: Package field */}
+                  {/* Package field */}
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Package</label>
                     <input
