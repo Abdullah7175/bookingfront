@@ -1,9 +1,49 @@
-import React, { useState, useEffect } from 'react';
-import { X, User, CreditCard, Plane, Building, MapPin, Car, DollarSign, ArrowRightLeft } from 'lucide-react';
+// BookingModal.tsx — PART 1/3
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  X, User, CreditCard, Plane, Building, MapPin, Car, DollarSign, Plus, Trash2
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { http } from '../lib/http';
 
-export type StepId = 'contact' | 'credit' | 'flights' | 'hotels' | 'visa' | 'transport' | 'costing';
+/** ---- Types ---- */
+
+export type StepId =
+  | 'contact'
+  | 'credit'
+  | 'flights'
+  | 'hotels'
+  | 'visa'
+  | 'transport'
+  | 'costing';
+
+type FlightLeg = {
+  from: string;
+  to: string;
+  vehicleType: 'Sedan' | 'SUV' | 'GMC' | 'Coaster' | 'Bus';
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+};
+
+type HotelEntry = {
+  hotelName: string;
+  roomType: string;
+  checkIn: string; // YYYY-MM-DD
+  checkOut: string; // YYYY-MM-DD
+};
+
+type VisaEntry = {
+  name: string;
+  nationality: string;
+  visaType: 'tourist' | 'umrah';
+};
+
+type CostingRow = {
+  label: string;       // e.g. "Flights", "Makkah Hotel"
+  quantity: number;    // No of quantity
+  costPerQty: number;  // Cost price per quantity
+  salePerQty: number;  // Sale price per quantity
+};
 
 export interface BookingFormData {
   // Contact
@@ -21,133 +61,205 @@ export interface BookingFormData {
   cvv: string;
   cardholderName: string;
 
-  // Flights
+  // Flights (legacy single fields + free-text itinerary)
   departureCity: string;
   arrivalCity: string;
-  departureDate: string; // YYYY-MM-DD
-  returnDate: string; // YYYY-MM-DD
+  departureDate: string;
+  returnDate: string;
   flightClass: 'economy' | 'business' | 'first';
-  pnr?: string; // 6 alphanumeric
+  pnr?: string;                   // 6 alphanumeric
+  flightsItinerary?: string;      // free text paste area
 
-  // Hotels
+  // Hotels (legacy single + multiple hotels)
   hotelName: string;
   roomType: string;
-  checkIn: string; // YYYY-MM-DD
-  checkOut: string; // YYYY-MM-DD
+  checkIn: string;
+  checkOut: string;
+  hotels?: HotelEntry[];
 
-  // Visa
+  // Visa (per-passenger)
   visaType: 'umrah' | 'hajj' | 'tourist';
-  passportNumber: string;
-  nationality: string;
+  passportNumber: string;         // legacy
+  nationality: string;            // legacy
+  visasCount?: number;
+  visas?: VisaEntry[];
 
-  // Transport
+  // Transport (legacy + multi-leg)
   transportType: 'bus' | 'car' | 'van' | 'taxi';
   pickupLocation: string;
+  legsCount?: number;
+  legs?: FlightLeg[];
 
-  // Costing
+  // Costing (dynamic rows)
   packagePrice: string;
   additionalServices: string;
   totalAmount: string;
   paymentMethod: 'credit_card' | 'bank_transfer' | 'cash' | 'installments';
+  costingRows?: CostingRow[];
 
   // Backend required additions
-  package?: string; // REQUIRED by backend
-  date?: string; // REQUIRED by backend (booking date)
+  package?: string;
+  date?: string; // booking date
 }
 
-export const steps: { id: StepId; title: string; icon: React.ComponentType<any> }[] = [
-  { id: 'contact', title: 'Contact Info', icon: User },
-  { id: 'credit', title: 'Credit Card', icon: CreditCard },
-  { id: 'flights', title: 'Flights', icon: Plane },
-  { id: 'hotels', title: 'Hotels', icon: Building },
-  { id: 'visa', title: 'Visa(s)', icon: MapPin },
-  { id: 'transport', title: 'Transportation', icon: Car },
-  { id: 'costing', title: 'Costing', icon: DollarSign },
+export const steps: { id: StepId; title: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [
+  { id: 'contact',   title: 'Contact Info',    icon: User },
+  { id: 'credit',    title: 'Credit Card',     icon: CreditCard },
+  { id: 'flights',   title: 'Flights',         icon: Plane },
+  { id: 'hotels',    title: 'Hotels',          icon: Building },
+  { id: 'visa',      title: 'Visa(s)',         icon: MapPin },
+  { id: 'transport', title: 'Transportation',  icon: Car },
+  { id: 'costing',   title: 'Costing',         icon: DollarSign },
 ];
 
-function isoOrNull(v?: string | null) {
+/** ---- Helpers ---- */
+
+function isoOrNull(v?: string | null): string | null {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.valueOf()) ? null : d.toISOString();
 }
-
-function sanitizePNR(v: string) {
+function sanitizePNR(v: string): string {
   return v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 }
+function toNum(v: unknown): number {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v === 'string') return Number(v.replace?.(/[$,]/g, '') ?? v) || 0;
+  return 0;
+}
 
-/** 🔧 Exported: validate current step (pure) */
+/** ---- Validation (pure) ---- */
 export function validateStepData(formData: BookingFormData, id: StepId): Record<string, string> {
   const e: Record<string, string> = {};
+
   if (id === 'contact') {
     if (!formData.name?.trim()) e.name = 'Name is required';
     if (!formData.email?.trim()) e.email = 'Email is required';
     if (!formData.contactNumber?.trim()) e.contactNumber = 'Contact number is required';
     if (!formData.passengers?.trim()) e.passengers = 'Number of passengers is required';
   }
+
   if (id === 'credit') {
     if (!formData.cardholderName?.trim()) e.cardholderName = 'Cardholder name is required';
   }
+
   if (id === 'flights') {
-    if (!formData.departureCity?.trim()) e.departureCity = 'Departure city is required';
-    if (!formData.arrivalCity?.trim()) e.arrivalCity = 'Arrival city is required';
-    if (!formData.departureDate) e.departureDate = 'Departure date is required';
-    if (!formData.returnDate) e.returnDate = 'Return date is required';
-    // Booking Date (backend "date")
-    if (!formData.date) e.date = 'Booking date is required';
-    // PNR strict check (required and exactly 6 alphanumeric)
-    if (!formData.pnr?.trim()) {
-      e.pnr = 'PNR is required';
-    } else if (!/^[A-Z0-9]{6}$/.test(formData.pnr.trim())) {
+    // If no free-text itinerary, allow leaving legacy fields empty.
+    // If you want to enforce at least something, require either itinerary or (dep+arr+dates).
+    const hasItin = !!formData.flightsItinerary?.trim();
+    const hasLegacyCombo =
+      !!formData.departureCity?.trim() &&
+      !!formData.arrivalCity?.trim() &&
+      !!formData.departureDate &&
+      !!formData.returnDate;
+
+    if (!hasItin && !hasLegacyCombo) {
+      e.flightsItinerary = 'Provide an itinerary OR fill departure/arrival + dates';
+    }
+
+    // Optional booking date, but if present must be a valid date
+    if (formData.date && !isoOrNull(formData.date)) e.date = 'Invalid booking date';
+
+    // PNR optional but must be exactly 6 alphanumeric if present
+    if (formData.pnr?.trim() && !/^[A-Z0-9]{6}$/.test(formData.pnr.trim())) {
       e.pnr = 'PNR must be exactly 6 letters/numbers (e.g. ABC12D)';
     }
   }
-  if (id === 'costing') {
-    if (!formData.totalAmount?.trim()) e.totalAmount = 'Total amount is required';
-    if (!formData.package?.trim()) e.package = 'Package is required';
+
+  if (id === 'hotels') {
+    if (formData.hotels && formData.hotels.length > 0) {
+      formData.hotels.forEach((h, i) => {
+        if (!h.hotelName?.trim()) e[`hotels_${i}_hotelName`] = 'Hotel name is required';
+        if (!h.checkIn) e[`hotels_${i}_checkIn`] = 'Check-in is required';
+        if (!h.checkOut) e[`hotels_${i}_checkOut`] = 'Check-out is required';
+      });
+    }
   }
+
+  if (id === 'visa') {
+    const count = formData.visasCount ?? 0;
+    if (count > 0) {
+      (formData.visas ?? []).slice(0, count).forEach((v, i) => {
+        if (!v?.name?.trim()) e[`visa_${i}_name`] = 'Name is required';
+        if (!v?.nationality?.trim()) e[`visa_${i}_nationality`] = 'Nationality is required';
+        if (!v?.visaType) e[`visa_${i}_type`] = 'Visa type is required';
+      });
+    }
+  }
+
+  if (id === 'transport') {
+    const legsCount = formData.legsCount ?? 0;
+    if (legsCount > 0) {
+      (formData.legs ?? []).slice(0, legsCount).forEach((leg, i) => {
+        if (!leg?.from?.trim()) e[`leg_${i}_from`] = 'From is required';
+        if (!leg?.to?.trim()) e[`leg_${i}_to`] = 'To is required';
+        if (!leg?.vehicleType) e[`leg_${i}_vehicleType`] = 'Vehicle type is required';
+        if (!leg?.date) e[`leg_${i}_date`] = 'Date is required';
+        if (!leg?.time) e[`leg_${i}_time`] = 'Time is required';
+      });
+    }
+  }
+
+  if (id === 'costing') {
+    if (!formData.package?.trim()) e.package = 'Package is required';
+
+    if (formData.costingRows && formData.costingRows.length > 0) {
+      formData.costingRows.forEach((row, i) => {
+        if (!row.label?.trim()) e[`cost_${i}_label`] = 'Label is required';
+        if (row.quantity < 0) e[`cost_${i}_qty`] = 'Quantity must be >= 0';
+        if (row.costPerQty < 0) e[`cost_${i}_cpq`] = 'Cost per qty must be >= 0';
+        if (row.salePerQty < 0) e[`cost_${i}_spq`] = 'Sale per qty must be >= 0';
+      });
+    }
+  }
+
   return e;
 }
 
-/** 🔧 Exported: build API payload (pure) — maps to backend-required keys and matches new list UI expectations */
-export function buildBookingPayload(formData: BookingFormData, user: any) {
-  const agentId = user?.agentId ?? user?.id ?? user?._id ?? (formData.agent || undefined);
+/** ---- Payload builder (pure) ---- */
 
-  // Required by backend schema - ensure they're not empty
-  const customerName = formData.name?.trim() || '';
+type MinimalUser = { id?: string; _id?: string; agentId?: string; };
+
+export function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null | undefined) {
+  const agentId =
+    user?.agentId ?? user?.id ?? user?._id ?? (formData.agent || undefined);
+
+  const customerName  = formData.name?.trim() || '';
   const customerEmail = formData.email?.trim() || '';
-  const pkg = formData.package?.trim() || '';
+  const pkg           = formData.package?.trim() || '';
   const bookingDateIso =
     isoOrNull(formData.date) ||
     isoOrNull(formData.departureDate) ||
     new Date().toISOString();
 
-  // Validate required fields
-  if (!customerName) {
-    throw new Error('Customer name is required');
-  }
-  if (!customerEmail) {
-    throw new Error('Customer email is required');
-  }
-  if (!pkg) {
-    throw new Error('Package is required');
-  }
+  if (!customerName)  throw new Error('Customer name is required');
+  if (!customerEmail) throw new Error('Customer email is required');
+  if (!pkg)           throw new Error('Package is required');
 
-  // Normalize numeric strings
-  const toNumberMaybe = (v: any) => {
-    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-    if (typeof v === 'string') {
-      const n = Number(v.replace?.(/[$,]/g, '') ?? v);
-      return Number.isFinite(n) ? n : 0;
-    }
-    return 0;
-  };
+  const packagePriceNum = toNum(formData.packagePrice);
+  const totalAmountNum  = toNum(formData.totalAmount);
 
-  const totalAmountNum = toNumberMaybe(formData.totalAmount);
-  const packagePriceNum = toNumberMaybe(formData.packagePrice);
+  const costingRows = (formData.costingRows ?? []).map((r) => {
+    const qty = toNum(r.quantity);
+    const cpq = toNum(r.costPerQty);
+    const spq = toNum(r.salePerQty);
+    return {
+      label: (r.label || '').trim(),
+      quantity: qty,
+      costPerQty: cpq,
+      salePerQty: spq,
+      totalCost: qty * cpq,
+      totalSale: qty * spq,
+      profit: (qty * spq) - (qty * cpq),
+    };
+  });
 
-  // Build nested payload to align with Bookings.mapBooking()
-  const payload = {
-    // ---- CUSTOMER INFORMATION
+  const sumCost   = costingRows.reduce((s, r) => s + r.totalCost, 0);
+  const sumSale   = costingRows.reduce((s, r) => s + r.totalSale, 0);
+  const sumProfit = sumSale - sumCost;
+
+  return {
+    // CUSTOMER
     customerName,
     customerEmail,
     contactNumber: formData.contactNumber || '',
@@ -155,122 +267,186 @@ export function buildBookingPayload(formData: BookingFormData, user: any) {
     adults: formData.adults || '',
     children: formData.children || '',
 
-    // ---- IDENTIFIERS / GROUPING
+    // IDENTIFIERS
     agentId,
-    customerGroup: customerEmail, // Use email for grouping same customer bookings
+    customerGroup: customerEmail,
 
-    // ---- PACKAGE / PRICING
+    // PACKAGE / PRICING
     package: pkg,
     pricing: {
       packageName: pkg,
       packagePrice: packagePriceNum,
       additionalServices: formData.additionalServices || '',
-      totalAmount: totalAmountNum,
+      totalAmount: totalAmountNum || sumSale,
       paymentMethod: formData.paymentMethod || 'credit_card',
+      table: costingRows,
+      totals: {
+        totalCostPrice: sumCost,
+        totalSalePrice: sumSale,
+        profit: sumProfit,
+      },
     },
-    // keep legacy top-level for backward compatibility
+    // legacy mirrors
     packagePrice: packagePriceNum,
     additionalServices: formData.additionalServices || '',
-    totalAmount: totalAmountNum,
+    totalAmount: totalAmountNum || sumSale,
+    amount: totalAmountNum || sumSale,
     paymentMethod: formData.paymentMethod || 'credit_card',
-    amount: totalAmountNum,
 
-    // ---- TRAVEL DATES
+    // TRAVEL DATES
     date: bookingDateIso,
-    departureDate: isoOrNull(formData.departureDate) || '', // legacy
-    returnDate: isoOrNull(formData.returnDate) || '', // legacy
+    departureDate: isoOrNull(formData.departureDate) || '',
+    returnDate: isoOrNull(formData.returnDate) || '',
 
-    // ---- FLIGHT INFORMATION (nested + legacy)
+    // FLIGHT
     flight: {
+      itinerary: formData.flightsItinerary || '',
       departureCity: formData.departureCity || '',
       arrivalCity: formData.arrivalCity || '',
       departureDate: isoOrNull(formData.departureDate) || '',
       returnDate: isoOrNull(formData.returnDate) || '',
       flightClass: formData.flightClass || 'economy',
-      pnr: formData.pnr || '',
+      pnr: (formData.pnr || '').toUpperCase(),
     },
-    departureCity: formData.departureCity || '', // legacy
-    arrivalCity: formData.arrivalCity || '', // legacy
-    flightClass: formData.flightClass || 'economy', // legacy
+    departureCity: formData.departureCity || '',
+    arrivalCity: formData.arrivalCity || '',
+    flightClass: formData.flightClass || 'economy',
 
-    // ---- HOTEL INFORMATION
+    // HOTELS
+    hotels: (formData.hotels ?? []).map((h) => ({
+      hotelName: h.hotelName || '',
+      roomType: h.roomType || '',
+      checkIn: isoOrNull(h.checkIn) || '',
+      checkOut: isoOrNull(h.checkOut) || '',
+    })),
     hotel: {
       hotelName: formData.hotelName || '',
       roomType: formData.roomType || '',
       checkIn: isoOrNull(formData.checkIn) || '',
       checkOut: isoOrNull(formData.checkOut) || '',
     },
-    hotelName: formData.hotelName || '', // legacy
-    roomType: formData.roomType || '', // legacy
-    checkIn: isoOrNull(formData.checkIn) || '', // legacy
-    checkOut: isoOrNull(formData.checkOut) || '', // legacy
 
-    // ---- VISA INFORMATION
-    visa: {
-      visaType: formData.visaType || 'umrah',
-      passportNumber: formData.passportNumber || '',
-      nationality: formData.nationality || '',
-    },
-    visaType: formData.visaType || 'umrah', // legacy
-    passportNumber: formData.passportNumber || '', // legacy
-    nationality: formData.nationality || '', // legacy
+    // VISAS
+    visas: (formData.visas ?? []).map((v) => ({
+      name: v.name || '',
+      nationality: v.nationality || '',
+      visaType: v.visaType || 'tourist',
+    })),
+    visaType: formData.visaType || 'umrah',
+    nationality: formData.nationality || '',
 
-    // ---- TRANSPORT INFORMATION
+    // TRANSPORT
     transport: {
+      legs: (formData.legs ?? []).map((l) => ({
+        from: l.from || '',
+        to: l.to || '',
+        vehicleType: l.vehicleType || 'Sedan',
+        date: isoOrNull(l.date) || '',
+        time: l.time || '',
+      })),
       transportType: formData.transportType || 'bus',
       pickupLocation: formData.pickupLocation || '',
     },
-    transportType: formData.transportType || 'bus', // legacy
-    pickupLocation: formData.pickupLocation || '', // legacy
 
-    // ---- PAYMENT (tokenized/masked)
+    // PAYMENT (masked)
     payment: {
       method: formData.paymentMethod || 'credit_card',
       cardLast4: (formData.cardNumber || '').replace(/\D/g, '').slice(-4),
       cardholderName: formData.cardholderName || '',
       expiryDate: formData.expiryDate || '',
     },
-    cardNumber: (formData.cardNumber || ''), // legacy — server should ignore full PAN
-    expiryDate: formData.expiryDate || '', // legacy
-    cvv: formData.cvv || '', // legacy — server should ignore
-    cardholderName: formData.cardholderName || '', // legacy
+    // legacy raw — server should ignore PAN/CVV
+    cardNumber: formData.cardNumber || '',
+    expiryDate: formData.expiryDate || '',
+    cvv: formData.cvv || '',
+    cardholderName: formData.cardholderName || '',
 
-    // ---- STATUS
+    // STATUS
     status: 'pending',
     approvalStatus: 'pending',
   };
-
-  return payload as any;
 }
 
+/** ---- Props ---- */
 interface BookingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit?: (created: any) => void;
+  onSubmit?: (createdOrUpdated: unknown) => void;
+  /** When set, the modal becomes EDIT mode and performs PUT /api/bookings/:id on submit */
+  bookingId?: string;
+  /** Seed the form (used for editing) */
+  initialData?: Partial<BookingFormData>;
+}
+// BookingModal.tsx — PART 2/3
+
+/** Small util for safe error messages */
+function errorMessage(err: unknown): string {
+  const e = err as { response?: any; message?: string };
+  return (
+    e?.response?.data?.message ||
+    (typeof e?.response?.data === 'string' ? e.response.data : '') ||
+    e?.message ||
+    'Something went wrong'
+  );
 }
 
-const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }) => {
+/** Defaults for array fields */
+const emptyHotels: HotelEntry[] = [{ hotelName: '', roomType: '', checkIn: '', checkOut: '' }];
+const emptyVisas: VisaEntry[]   = [];
+const emptyLegs: FlightLeg[]    = [];
+const starterCosting: CostingRow[] = [
+  { label: 'Flights',        quantity: 0, costPerQty: 0, salePerQty: 0 },
+  { label: 'Makkah Hotel',   quantity: 0, costPerQty: 0, salePerQty: 0 },
+  { label: 'Madinah Hotel',  quantity: 0, costPerQty: 0, salePerQty: 0 },
+  { label: 'Visa(s)',        quantity: 0, costPerQty: 0, salePerQty: 0 },
+  { label: 'Transportation', quantity: 0, costPerQty: 0, salePerQty: 0 },
+];
+
+const BookingModal: React.FC<BookingModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  bookingId,
+  initialData,
+}) => {
   const { user } = useAuth();
 
-  const [currentStep, setCurrentStep] = useState(0);
+  // ---- Wizard state
+  const [currentStep, setCurrentStep] = useState<number>(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [serverError, setServerError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [bookings, setBookings] = useState<BookingFormData[]>([]);
-  const [currentBookingIndex, setCurrentBookingIndex] = useState(0);
+  const [serverError, setServerError] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
 
+  // multi-create support
+  const [bookings, setBookings] = useState<BookingFormData[]>([]);
+  const [currentBookingIndex, setCurrentBookingIndex] = useState<number>(0);
+
+  // base empty form
   const empty: BookingFormData = {
+    // contact
     name: '', passengers: '', adults: '', children: '', email: '', contactNumber: '', agent: '',
+    // credit
     cardNumber: '', expiryDate: '', cvv: '', cardholderName: '',
-    departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy', pnr: '',
-    hotelName: '', roomType: '', checkIn: '', checkOut: '',
-    visaType: 'umrah', passportNumber: '', nationality: '',
-    transportType: 'bus', pickupLocation: '',
+    // flights
+    departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy',
+    pnr: '', flightsItinerary: '',
+    // hotels (legacy + array)
+    hotelName: '', roomType: '', checkIn: '', checkOut: '', hotels: emptyHotels,
+    // visa
+    visaType: 'umrah', passportNumber: '', nationality: '', visasCount: 0, visas: emptyVisas,
+    // transport
+    transportType: 'bus', pickupLocation: '', legsCount: 0, legs: emptyLegs,
+    // costing
     packagePrice: '', additionalServices: '', totalAmount: '', paymentMethod: 'credit_card',
+    costingRows: starterCosting,
+    // backend additions
     package: '', date: '',
   };
 
-  // Initialize with first booking
+  const [formData, setFormData] = useState<BookingFormData>(empty);
+  const step = steps[currentStep];
+
+  // Initial open — create first booking
   useEffect(() => {
     if (isOpen && bookings.length === 0) {
       setBookings([empty]);
@@ -279,28 +455,41 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, bookings.length]);
 
-  const [formData, setFormData] = useState<BookingFormData>(empty);
-
-  const step = steps[currentStep];
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name } = e.target;
-    let { value } = e.target as HTMLInputElement;
-
-    if (name === 'pnr') {
-      value = sanitizePNR(value);
+  // EDIT MODE: hydrate from initialData when opened
+  useEffect(() => {
+    if (isOpen && initialData) {
+      const merged: BookingFormData = {
+        ...empty,
+        ...initialData,
+        hotels: initialData.hotels && initialData.hotels.length > 0 ? initialData.hotels : emptyHotels,
+        visas: initialData.visas ?? emptyVisas,
+        legs: initialData.legs ?? emptyLegs,
+        costingRows: initialData.costingRows && initialData.costingRows.length > 0 ? initialData.costingRows : starterCosting,
+      } as BookingFormData;
+      setBookings([merged]);
+      setFormData(merged);
+      setCurrentBookingIndex(0);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialData]);
 
-    const updatedFormData = { ...formData, [name]: value };
-    setFormData(updatedFormData);
+  // ---- Mutators & handlers
 
-    // Update the current booking in the bookings array
-    setBookings(prev => prev.map((booking, index) =>
-      index === currentBookingIndex ? updatedFormData : booking
-    ));
-
-    if (errors[name]) setErrors((p) => ({ ...p, [name]: '' }));
+  const updateForm = (patch: Partial<BookingFormData>) => {
+    const updated: BookingFormData = { ...formData, ...patch };
+    setFormData(updated);
+    setBookings(prev => prev.map((b, i) => (i === currentBookingIndex ? updated : b)));
     setServerError('');
+  };
+
+  const handleInputChange: React.ChangeEventHandler<
+    HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+  > = (e) => {
+    const { name } = e.target as HTMLInputElement;
+    let { value } = e.target as HTMLInputElement;
+    if (name === 'pnr') value = sanitizePNR(value);
+    updateForm({ [name]: value } as Partial<BookingFormData>);
+    if (errors[name]) setErrors((p) => ({ ...p, [name]: '' }));
   };
 
   const validateStep = (id: StepId) => {
@@ -316,38 +505,14 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
   };
   const handlePrevious = () => setCurrentStep((s) => Math.max(0, s - 1));
 
-  const swapCities = () => {
-    setFormData((prev) => ({
-      ...prev,
-      departureCity: prev.arrivalCity,
-      arrivalCity: prev.departureCity,
-    }));
-  };
-
   const addAnotherBooking = () => {
     const newBooking: BookingFormData = {
-      // Copy contact & payment basics so user doesn't retype
-      name: formData.name,
-      passengers: formData.passengers,
-      adults: formData.adults,
-      children: formData.children,
-      email: formData.email,
-      contactNumber: formData.contactNumber,
-      agent: formData.agent,
-      cardNumber: formData.cardNumber,
-      expiryDate: formData.expiryDate,
-      cvv: formData.cvv,
-      cardholderName: formData.cardholderName,
-
-      // Reset trip-specific
-      departureCity: '', arrivalCity: '', departureDate: '', returnDate: '', flightClass: 'economy', pnr: '',
-      hotelName: '', roomType: '', checkIn: '', checkOut: '',
-      visaType: 'umrah', passportNumber: '', nationality: '',
-      transportType: 'bus', pickupLocation: '',
-      packagePrice: '', additionalServices: '', totalAmount: '', paymentMethod: 'credit_card',
-      package: '', date: '',
+      ...empty,
+      // copy common fields
+      name: formData.name, passengers: formData.passengers, adults: formData.adults, children: formData.children,
+      email: formData.email, contactNumber: formData.contactNumber, agent: formData.agent,
+      cardNumber: formData.cardNumber, expiryDate: formData.expiryDate, cvv: formData.cvv, cardholderName: formData.cardholderName,
     };
-
     setBookings(prev => [...prev, newBooking]);
     setCurrentBookingIndex(bookings.length);
     setFormData(newBooking);
@@ -374,7 +539,23 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
 
   const fillTestData = () => {
     const today = new Date();
-    const nextWeek = new Date(); nextWeek.setDate(today.getDate() + 7);
+    const nextWeek = new Date();
+    nextWeek.setDate(today.getDate() + 7);
+
+    const testHotels: HotelEntry[] = [
+      { hotelName: 'Makkah Hilton',  roomType: 'double', checkIn: today.toISOString().slice(0,10),    checkOut: nextWeek.toISOString().slice(0,10) },
+      { hotelName: 'Madinah Pullman',roomType: 'double', checkIn: nextWeek.toISOString().slice(0,10), checkOut: nextWeek.toISOString().slice(0,10) },
+    ];
+    const testVisas: VisaEntry[] = [
+      { name: 'John Doe',   nationality: 'US', visaType: 'umrah' },
+      { name: 'Jane Doe',   nationality: 'US', visaType: 'umrah' },
+      { name: 'Junior Doe', nationality: 'US', visaType: 'umrah' },
+    ];
+    const testLegs: FlightLeg[] = [
+      { from: 'JED', to: 'MAK', vehicleType: 'SUV',     date: today.toISOString().slice(0,10),    time: '14:00' },
+      { from: 'MAK', to: 'MED', vehicleType: 'Coaster', date: nextWeek.toISOString().slice(0,10), time: '09:00' },
+    ];
+
     const testData: Partial<BookingFormData> = {
       name: 'John Doe',
       email: 'john@example.com',
@@ -382,55 +563,65 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
       passengers: '3',
       adults: '2',
       children: '1',
-      agent: '',
-      cardNumber: '4111 1111 1111 1111',
-      expiryDate: '12/28',
-      cvv: '123',
-      cardholderName: 'JOHN DOE',
-      departureCity: 'Karachi',
-      arrivalCity: 'Jeddah',
+      flightsItinerary:
+`1:TK1234 12OCT JFK IST 1200P 1050A 13OCT
+2:TK5467 13OCT IST JED 1400P 2200P
+3:TK2345 21OCT MED IST 0800A 1450P
+4:TK8970 21OCT IST JFK 1600P 2000P`,
+      departureCity: 'JFK',
+      arrivalCity: 'JED',
       departureDate: today.toISOString().slice(0, 10),
       returnDate: nextWeek.toISOString().slice(0, 10),
       flightClass: 'economy',
       pnr: 'ABC12D',
-      hotelName: 'Hilton',
-      roomType: 'double',
-      checkIn: today.toISOString().slice(0, 10),
-      checkOut: nextWeek.toISOString().slice(0, 10),
-      visaType: 'umrah',
-      passportNumber: 'AB1234567',
-      nationality: 'PK',
-      transportType: 'bus',
-      pickupLocation: 'Jeddah Airport',
+      hotels: testHotels,
+      visasCount: 3,
+      visas: testVisas,
+      legsCount: 2,
+      legs: testLegs,
       packagePrice: '1200',
       additionalServices: 'Zamzam water, Ziyarah',
-      totalAmount: '1500',
+      totalAmount: '',
       paymentMethod: 'credit_card',
       package: '7N Umrah Standard',
       date: today.toISOString().slice(0, 10),
+      costingRows: [
+        { label: 'Flights',        quantity: 3, costPerQty: 800, salePerQty: 850 },
+        { label: 'Makkah Hotel',   quantity: 1, costPerQty: 900, salePerQty: 1050 },
+        { label: 'Madinah Hotel',  quantity: 1, costPerQty: 450, salePerQty: 760 },
+        { label: 'Visa(s)',        quantity: 3, costPerQty: 150, salePerQty: 200 },
+        { label: 'Transportation', quantity: 1, costPerQty: 480, salePerQty: 480 },
+      ],
     };
 
-    setFormData((prev) => ({ ...prev, ...testData }));
-
-    setBookings(prev => prev.map((booking, index) =>
-      index === currentBookingIndex ? { ...booking, ...testData } : booking
-    ));
+    updateForm(testData);
   };
 
-  const handleSubmit = async (e?: React.FormEvent) => {
+  // Derived totals for costing table
+  const costingTotals = useMemo(() => {
+    const rows = formData.costingRows ?? [];
+    const sumCost = rows.reduce((s, r) => s + (toNum(r.quantity) * toNum(r.costPerQty)), 0);
+    const sumSale = rows.reduce((s, r) => s + (toNum(r.quantity) * toNum(r.salePerQty)), 0);
+    const profit  = sumSale - sumCost;
+    return { sumCost, sumSale, profit };
+  }, [formData.costingRows]);
+
+  const handleSubmit = async (e?: React.FormEvent<HTMLFormElement>) => {
     if (e) e.preventDefault();
 
-    // Validate *all* bookings (flights + costing requirements)
+    // validate all bookings
     for (let i = 0; i < bookings.length; i++) {
       const b = bookings[i];
-      const flightErrors = validateStepData(b, 'flights');
-      const costingErrors = validateStepData(b, 'costing');
-      const errorsCombined = { ...flightErrors, ...costingErrors };
-
-      if (Object.keys(errorsCombined).length > 0) {
+      const eFlights = validateStepData(b, 'flights');
+      const eCosting = validateStepData(b, 'costing');
+      const eHotels  = validateStepData(b, 'hotels');
+      const eVisa    = validateStepData(b, 'visa');
+      const eTrans   = validateStepData(b, 'transport');
+      const merged = { ...eFlights, ...eCosting, ...eHotels, ...eVisa, ...eTrans };
+      if (Object.keys(merged).length > 0) {
         setCurrentBookingIndex(i);
         setFormData(b);
-        setErrors(errorsCombined);
+        setErrors(merged);
         setServerError(`Please complete all required fields for Booking ${i + 1}`);
         return;
       }
@@ -439,34 +630,40 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
     setSubmitting(true);
     setServerError('');
     try {
-      const createdBookings: any[] = [];
-      for (const booking of bookings) {
-        const bookingPayload = buildBookingPayload(booking, user);
-        const res = await http.post('/api/bookings', bookingPayload);
-        createdBookings.push(res.data);
+      const payloads = bookings.map(b => buildBookingPayload(b, user));
+
+      // EDIT MODE: update single booking
+      if (bookingId) {
+        const res = await http.put(`/api/bookings/${bookingId}`, payloads[0]);
+        onSubmit?.(res.data as unknown);
+        resetForm();
+        onClose();
+        return;
       }
 
-      createdBookings.forEach(booking => onSubmit?.(booking));
-
+      // CREATE MODE: POST all
+      const created: unknown[] = [];
+      for (const p of payloads) {
+        const res = await http.post('/api/bookings', p);
+        created.push(res.data as unknown);
+      }
+      created.forEach(b => onSubmit?.(b));
       resetForm();
       onClose();
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        (typeof err?.response?.data === 'string' ? err.response.data : '') ||
-        err?.message ||
-        'Failed to create booking';
-      setServerError(msg);
+    } catch (err) {
+      setServerError(errorMessage(err));
     } finally {
       setSubmitting(false);
     }
   };
 
   if (!isOpen) return null;
+// BookingModal.tsx — PART 3/3 (JSX UI + footer + export)
 
   return (
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto border border-gray-200">
+
         {/* Header */}
         <div className="bg-blue-600 text-white p-4 sm:p-6">
           <div className="flex items-center justify-between">
@@ -475,7 +672,9 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                 <Plane className="h-6 w-6" />
               </div>
               <div>
-                <h2 className="text-xl sm:text-2xl font-bold">Create New Booking</h2>
+                <h2 className="text-xl sm:text-2xl font-bold">
+                  {bookingId ? 'Edit Booking' : 'Create New Booking'}
+                </h2>
                 {bookings.length > 1 && (
                   <p className="text-blue-100 text-sm">
                     Booking {currentBookingIndex + 1} of {bookings.length}
@@ -483,12 +682,14 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                 )}
               </div>
             </div>
+
             <div className="flex items-center gap-2">
               {bookings.length > 1 && (
                 <div className="flex items-center space-x-2 mr-2">
                   {bookings.map((_, index) => (
                     <button
                       key={index}
+                      type="button"
                       onClick={() => switchToBooking(index)}
                       className={`w-8 h-8 rounded-full text-sm font-medium transition-colors ${
                         index === currentBookingIndex
@@ -501,6 +702,16 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                   ))}
                 </div>
               )}
+              {!bookingId && (
+                <button
+                  type="button"
+                  onClick={addAnotherBooking}
+                  className="hidden sm:inline px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
+                  title="Add another booking for the same customer"
+                >
+                  + Booking
+                </button>
+              )}
               <button
                 type="button"
                 onClick={fillTestData}
@@ -508,13 +719,17 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
               >
                 Fill Test Data
               </button>
-              <button onClick={onClose} className="p-2 hover:bg-blue-700 rounded-lg transition-colors" aria-label="Close">
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-blue-700 rounded-lg transition-colors"
+                aria-label="Close"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
           </div>
 
-          {/* Step Navigation */}
+          {/* Steps */}
           <div className="mt-4 sm:mt-6">
             <div className="flex flex-wrap gap-2">
               {steps.map((s, index) => {
@@ -543,7 +758,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
           </div>
         </div>
 
-        {/* Content */}
+        {/* Body */}
         <div className="p-4 sm:p-6">
           {serverError && (
             <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -555,75 +770,102 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
             {/* CONTACT */}
             {step.id === 'contact' && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Info</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Contact Info</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* name */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Enter Name</label>
                     <input
                       data-testid="name"
-                      type="text" name="name" value={formData.name} onChange={handleInputChange}
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
                       className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
                         errors.name ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="Enter Name"
+                      }`}
+                      placeholder="Enter Name"
                     />
                     {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
                   </div>
-                  {/* passengers */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Number of Passengers</label>
                     <input
                       data-testid="passengers"
-                      type="number" name="passengers" value={formData.passengers} onChange={handleInputChange}
+                      type="number"
+                      name="passengers"
+                      value={formData.passengers}
+                      onChange={handleInputChange}
                       className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
                         errors.passengers ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="Enter Number of Passengers"
+                      }`}
+                      placeholder="Enter Number of Passengers"
                     />
                     {errors.passengers && <p className="text-red-500 text-xs mt-1">{errors.passengers}</p>}
                   </div>
-                  {/* adults */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Adults</label>
-                    <input data-testid="adults" type="number" name="adults" value={formData.adults} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="Adults" />
+                    <input
+                      data-testid="adults"
+                      type="number"
+                      name="adults"
+                      value={formData.adults}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
+                      placeholder="Adults"
+                    />
                   </div>
-                  {/* children */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Children</label>
-                    <input data-testid="children" type="number" name="children" value={formData.children} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="Children" />
+                    <input
+                      data-testid="children"
+                      type="number"
+                      name="children"
+                      value={formData.children}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
+                      placeholder="Children"
+                    />
                   </div>
-                  {/* email */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                     <input
                       data-testid="email"
-                      type="email" name="email" value={formData.email} onChange={handleInputChange}
+                      type="email"
+                      name="email"
+                      value={formData.email}
+                      onChange={handleInputChange}
                       className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
                         errors.email ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="Enter Email"
+                      }`}
+                      placeholder="Enter Email"
                     />
                     {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
                   </div>
-                  {/* contact */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Contact Number</label>
                     <input
                       data-testid="contactNumber"
-                      type="tel" name="contactNumber" value={formData.contactNumber} onChange={handleInputChange}
+                      type="tel"
+                      name="contactNumber"
+                      value={formData.contactNumber}
+                      onChange={handleInputChange}
                       className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
                         errors.contactNumber ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="Enter Contact Number"
+                      }`}
+                      placeholder="Enter Contact Number"
                     />
-                    {errors.contactNumber && <p className="text-red-500 text-xs mt-1">{errors.contactNumber}</p>}
+                    {errors.contactNumber && (
+                      <p className="text-red-500 text-xs mt-1">{errors.contactNumber}</p>
+                    )}
                   </div>
                 </div>
 
-                {/* Agent (optional) */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Agent:</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Agent</label>
                   <select
-                    name="agent" value={formData.agent} onChange={handleInputChange}
+                    name="agent"
+                    value={formData.agent}
+                    onChange={handleInputChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="">Use logged-in agent</option>
@@ -638,38 +880,61 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
             {/* CREDIT */}
             {step.id === 'credit' && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Credit Card Information</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Credit Card Information</h3>
                 <p className="text-xs text-gray-500">
-                  We only store <strong>payment method</strong> and <strong>last 4</strong>. Full card data is not sent to server.
+                  We only store <strong>payment method</strong> and <strong>last 4</strong>. Full card data is not sent
+                  to server.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Card Number</label>
                     <input
-                      type="text" name="cardNumber" value={formData.cardNumber} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="1234 5678 9012 3456"
+                      type="text"
+                      name="cardNumber"
+                      value={formData.cardNumber}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
+                      placeholder="1234 5678 9012 3456"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Expiry Date</label>
-                    <input type="text" name="expiryDate" value={formData.expiryDate} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="MM/YY" />
+                    <input
+                      type="text"
+                      name="expiryDate"
+                      value={formData.expiryDate}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
+                      placeholder="MM/YY"
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">CVV</label>
-                    <input type="password" name="cvv" value={formData.cvv} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="123" />
+                    <input
+                      type="password"
+                      name="cvv"
+                      value={formData.cvv}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
+                      placeholder="123"
+                    />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Cardholder Name</label>
                     <input
                       data-testid="cardholderName"
-                      type="text" name="cardholderName" value={formData.cardholderName} onChange={handleInputChange}
+                      type="text"
+                      name="cardholderName"
+                      value={formData.cardholderName}
+                      onChange={handleInputChange}
                       className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
                         errors.cardholderName ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="John Doe"
+                      }`}
+                      placeholder="John Doe"
                     />
-                    {errors.cardholderName && <p className="text-red-500 text-xs mt-1">{errors.cardholderName}</p>}
+                    {errors.cardholderName && (
+                      <p className="text-red-500 text-xs mt-1">{errors.cardholderName}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -678,72 +943,34 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
             {/* FLIGHTS */}
             {step.id === 'flights' && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Flight Information</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Flight Information</h3>
+
+                <div className="mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Paste Itinerary (any number of segments)
+                  </label>
+                  <textarea
+                    name="flightsItinerary"
+                    value={formData.flightsItinerary || ''}
+                    onChange={handleInputChange}
+                    rows={5}
+                    placeholder={`1:TK1234 12OCT JFK IST 1200P 1050A 13OCT
+2:TK5467 13OCT IST JED 1400P 2200P
+...`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Departure City</label>
-                    <input
-                      data-testid="departureCity"
-                      type="text" name="departureCity" value={formData.departureCity} onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
-                        errors.departureCity ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="Departure City"
-                    />
-                    {errors.departureCity && <p className="text-red-500 text-xs mt-1">{errors.departureCity}</p>}
-                  </div>
-
-                  {/* Swap Cities Button */}
-                  <div className="flex items-end justify-center pb-2">
-                    <button
-                      type="button"
-                      onClick={swapCities}
-                      className="p-2 bg-blue-100 hover:bg-blue-200 rounded-full transition-colors"
-                      title="Swap departure and arrival cities"
-                    >
-                      <ArrowRightLeft className="h-5 w-5 text-blue-600" />
-                    </button>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Arrival City</label>
-                    <input
-                      data-testid="arrivalCity"
-                      type="text" name="arrivalCity" value={formData.arrivalCity} onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
-                        errors.arrivalCity ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="Arrival City"
-                    />
-                    {errors.arrivalCity && <p className="text-red-500 text-xs mt-1">{errors.arrivalCity}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Departure Date</label>
-                    <input
-                      data-testid="departureDate"
-                      type="date" name="departureDate" value={formData.departureDate} onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
-                        errors.departureDate ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`}
-                    />
-                    {errors.departureDate && <p className="text-red-500 text-xs mt-1">{errors.departureDate}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Return Date</label>
-                    <input
-                      data-testid="returnDate"
-                      type="date" name="returnDate" value={formData.returnDate} onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
-                        errors.returnDate ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`}
-                    />
-                    {errors.returnDate && <p className="text-red-500 text-xs mt-1">{errors.returnDate}</p>}
-                  </div>
-
-                  {/* Booking Date */}
+                  {/* Optional booking date (kept to match backend date requirement) */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Booking Date</label>
                     <input
                       data-testid="bookingDate"
-                      type="date" name="date" value={formData.date || ''} onChange={handleInputChange}
+                      type="date"
+                      name="date"
+                      value={formData.date || ''}
+                      onChange={handleInputChange}
                       className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
                         errors.date ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
                       }`}
@@ -753,10 +980,15 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
 
                   {/* PNR */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">PNR <span className="text-gray-400">(6 alphanumeric)</span></label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      PNR <span className="text-gray-400">(optional, 6 alphanumeric)</span>
+                    </label>
                     <input
                       data-testid="pnr"
-                      type="text" name="pnr" value={formData.pnr || ''} onChange={handleInputChange}
+                      type="text"
+                      name="pnr"
+                      value={formData.pnr || ''}
+                      onChange={handleInputChange}
                       placeholder="e.g. ABC12D"
                       className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
                         errors.pnr ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
@@ -768,7 +1000,9 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Flight Class</label>
                     <select
-                      name="flightClass" value={formData.flightClass} onChange={handleInputChange}
+                      name="flightClass"
+                      value={formData.flightClass}
+                      onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="economy">Economy</option>
@@ -780,98 +1014,327 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
               </div>
             )}
 
-            {/* HOTELS */}
+            {/* HOTELS (multiple) */}
             {step.id === 'hotels' && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Hotel Information</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Hotel Name</label>
-                    <input type="text" name="hotelName" value={formData.hotelName} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="Hotel Name" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Room Type</label>
-                    <select
-                      name="roomType" value={formData.roomType} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select Room Type</option>
-                      <option value="single">Single Room</option>
-                      <option value="double">Double Room</option>
-                      <option value="triple">Triple Room</option>
-                      <option value="quad">Quad Room</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Check-in Date</label>
-                    <input type="date" name="checkIn" value={formData.checkIn} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Check-out Date</label>
-                    <input type="date" name="checkOut" value={formData.checkOut} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" />
-                  </div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Hotel Information</h3>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateForm({
+                        hotels: [...(formData.hotels ?? []), { hotelName: '', roomType: '', checkIn: '', checkOut: '' }],
+                      })
+                    }
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center"
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add Hotel
+                  </button>
                 </div>
+
+                {(formData.hotels ?? []).map((h, idx) => (
+                  <div key={idx} className="p-3 border border-gray-200 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-sm text-gray-700">Hotel #{idx + 1}</p>
+                      {(formData.hotels ?? []).length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = [...(formData.hotels ?? [])];
+                            next.splice(idx, 1);
+                            updateForm({ hotels: next });
+                          }}
+                          className="text-red-600 hover:text-red-700 text-xs flex items-center"
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" /> Remove
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Hotel Name</label>
+                        <input
+                          type="text"
+                          value={h.hotelName}
+                          onChange={(e) => {
+                            const next = [...(formData.hotels ?? [])];
+                            next[idx] = { ...next[idx], hotelName: e.target.value };
+                            updateForm({ hotels: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`hotels_${idx}_hotelName`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                          placeholder="Hotel Name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Room Type</label>
+                        <select
+                          value={h.roomType}
+                          onChange={(e) => {
+                            const next = [...(formData.hotels ?? [])];
+                            next[idx] = { ...next[idx], roomType: e.target.value };
+                            updateForm({ hotels: next });
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          <option value="">Select Room Type</option>
+                          <option value="single">Single</option>
+                          <option value="double">Double</option>
+                          <option value="triple">Triple</option>
+                          <option value="quad">Quad</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Check-in</label>
+                        <input
+                          type="date"
+                          value={h.checkIn}
+                          onChange={(e) => {
+                            const next = [...(formData.hotels ?? [])];
+                            next[idx] = { ...next[idx], checkIn: e.target.value };
+                            updateForm({ hotels: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`hotels_${idx}_checkIn`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Check-out</label>
+                        <input
+                          type="date"
+                          value={h.checkOut}
+                          onChange={(e) => {
+                            const next = [...(formData.hotels ?? [])];
+                            next[idx] = { ...next[idx], checkOut: e.target.value };
+                            updateForm({ hotels: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`hotels_${idx}_checkOut`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* VISA */}
+            {/* VISA(S) */}
             {step.id === 'visa' && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Visa Information</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Visa Type</label>
-                    <select
-                      name="visaType" value={formData.visaType} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="umrah">Umrah Visa</option>
-                      <option value="hajj">Hajj Visa</option>
-                      <option value="tourist">Tourist Visa</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Passport Number</label>
-                    <input type="text" name="passportNumber" value={formData.passportNumber} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="Passport Number" />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Nationality</label>
-                    <input type="text" name="nationality" value={formData.nationality} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="Nationality" />
-                  </div>
-                </div>
-              </div>
-            )}
+                <h3 className="text-lg font-semibold text-gray-900">Visa Information</h3>
 
-            {/* TRANSPORT */}
-            {step.id === 'transport' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Transportation</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Transport Type</label>
-                    <select
-                      name="transportType" value={formData.transportType} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="bus">Bus</option>
-                      <option value="car">Private Car</option>
-                      <option value="van">Van</option>
-                      <option value="taxi">Taxi</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Location</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Number of Visa(s)</label>
                     <input
-                      type="text" name="pickupLocation" value={formData.pickupLocation} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="Pickup Location"
+                      type="number"
+                      min={0}
+                      value={formData.visasCount ?? 0}
+                      onChange={(e) => {
+                        const n = Math.max(0, Number(e.target.value || 0));
+                        const current = formData.visas ?? [];
+                        let next = current.slice(0, n);
+                        if (next.length < n) {
+                          next = next.concat(
+                            Array.from({ length: n - next.length }, () => ({
+                              name: '',
+                              nationality: '',
+                              visaType: 'tourist' as const,
+                            })),
+                          );
+                        }
+                        updateForm({ visasCount: n, visas: next });
+                      }}
+                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
                     />
                   </div>
                 </div>
+
+                {(formData.visas ?? []).slice(0, formData.visasCount || 0).map((v, idx) => (
+                  <div key={idx} className="p-3 border border-gray-200 rounded-lg space-y-3">
+                    <p className="font-medium text-sm text-gray-700">Passenger #{idx + 1}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                        <input
+                          type="text"
+                          value={v.name}
+                          onChange={(e) => {
+                            const next = [...(formData.visas ?? [])];
+                            next[idx] = { ...next[idx], name: e.target.value };
+                            updateForm({ visas: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`visa_${idx}_name`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                          placeholder="Full name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Nationality</label>
+                        <input
+                          type="text"
+                          value={v.nationality}
+                          onChange={(e) => {
+                            const next = [...(formData.visas ?? [])];
+                            next[idx] = { ...next[idx], nationality: e.target.value };
+                            updateForm({ visas: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`visa_${idx}_nationality`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                          placeholder="e.g. PK, US"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Visa Type</label>
+                        <select
+                          value={v.visaType}
+                          onChange={(e) => {
+                            const next = [...(formData.visas ?? [])];
+                            next[idx] = { ...next[idx], visaType: e.target.value as 'tourist' | 'umrah' };
+                            updateForm({ visas: next });
+                          }}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                            errors[`visa_${idx}_type`] ? 'ring-red-200 border-red-300' : ''
+                          }`}
+                        >
+                          <option value="tourist">Tourist</option>
+                          <option value="umrah">Umrah</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* TRANSPORT (multi-leg) */}
+            {step.id === 'transport' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Transportation</h3>
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm text-gray-700">Number of legs</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.legsCount ?? 0}
+                      onChange={(e) => {
+                        const n = Math.max(0, Number(e.target.value || 0));
+                        const current = formData.legs ?? [];
+                        let next = current.slice(0, n);
+                        if (next.length < n) {
+                          next = next.concat(
+                            Array.from({ length: n - next.length }, () => ({
+                              from: '',
+                              to: '',
+                              vehicleType: 'Sedan' as const,
+                              date: '',
+                              time: '',
+                            })),
+                          );
+                        }
+                        updateForm({ legsCount: n, legs: next });
+                      }}
+                      className="w-24 px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {(formData.legs ?? []).slice(0, formData.legsCount || 0).map((leg, idx) => (
+                  <div key={idx} className="p-3 border border-gray-200 rounded-lg space-y-3">
+                    <p className="font-medium text-sm text-gray-700">Leg #{idx + 1}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">From</label>
+                        <input
+                          type="text"
+                          value={leg.from}
+                          onChange={(e) => {
+                            const next = [...(formData.legs ?? [])];
+                            next[idx] = { ...next[idx], from: e.target.value };
+                            updateForm({ legs: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`leg_${idx}_from`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                          placeholder="From"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">To</label>
+                        <input
+                          type="text"
+                          value={leg.to}
+                          onChange={(e) => {
+                            const next = [...(formData.legs ?? [])];
+                            next[idx] = { ...next[idx], to: e.target.value };
+                            updateForm({ legs: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`leg_${idx}_to`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                          placeholder="To"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle</label>
+                        <select
+                          value={leg.vehicleType}
+                          onChange={(e) => {
+                            const next = [...(formData.legs ?? [])];
+                            next[idx] = { ...next[idx], vehicleType: e.target.value as FlightLeg['vehicleType'] };
+                            updateForm({ legs: next });
+                          }}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                            errors[`leg_${idx}_vehicleType`] ? 'ring-red-200 border-red-300' : ''
+                          }`}
+                        >
+                          <option value="Sedan">Sedan</option>
+                          <option value="SUV">SUV</option>
+                          <option value="GMC">GMC</option>
+                          <option value="Coaster">Coaster</option>
+                          <option value="Bus">Bus</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                        <input
+                          type="date"
+                          value={leg.date}
+                          onChange={(e) => {
+                            const next = [...(formData.legs ?? [])];
+                            next[idx] = { ...next[idx], date: e.target.value };
+                            updateForm({ legs: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`leg_${idx}_date`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+                        <input
+                          type="time"
+                          value={leg.time}
+                          onChange={(e) => {
+                            const next = [...(formData.legs ?? [])];
+                            next[idx] = { ...next[idx], time: e.target.value };
+                            updateForm({ legs: next });
+                          }}
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`leg_${idx}_time`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -880,65 +1343,183 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-gray-900">Costing</h3>
-                  <button
-                    type="button"
-                    onClick={addAnotherBooking}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                  >
-                    + Add Another Booking
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Package field */}
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Package</label>
-                    <input
-                      data-testid="package"
-                      type="text" name="package" value={formData.package || ''} onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
-                        errors.package ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="e.g. 7N Umrah Standard"
-                    />
-                    {errors.package && <p className="text-red-500 text-xs mt-1">{errors.package}</p>}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Package Price</label>
-                    <input
-                      type="number" name="packagePrice" value={formData.packagePrice} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border-b border-gray-300 focus:border-blue-500 focus:outline-none transition-colors" placeholder="Package Price"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Total Amount</label>
-                    <input
-                      data-testid="totalAmount"
-                      type="number" name="totalAmount" value={formData.totalAmount} onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
-                        errors.totalAmount ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
-                      }`} placeholder="Total Amount"
-                    />
-                    {errors.totalAmount && <p className="text-red-500 text-xs mt-1">{errors.totalAmount}</p>}
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Additional Services</label>
-                    <textarea
-                      name="additionalServices" value={formData.additionalServices} onChange={handleInputChange} rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Additional Services"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
-                    <select
-                      name="paymentMethod" value={formData.paymentMethod} onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateForm({
+                          costingRows: [...(formData.costingRows ?? []), { label: '', quantity: 0, costPerQty: 0, salePerQty: 0 }],
+                        })
+                      }
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center"
                     >
-                      <option value="credit_card">Credit Card</option>
-                      <option value="bank_transfer">Bank Transfer</option>
-                      <option value="cash">Cash</option>
-                      <option value="installments">Installments</option>
-                    </select>
+                      <Plus className="h-4 w-4 mr-1" /> Add Row
+                    </button>
                   </div>
+                </div>
+
+                {/* Package (required) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Package</label>
+                  <input
+                    data-testid="package"
+                    type="text"
+                    name="package"
+                    value={formData.package || ''}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                      errors.package ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
+                    }`}
+                    placeholder="e.g. 7N Umrah Standard"
+                  />
+                  {errors.package && <p className="text-red-500 text-xs mt-1">{errors.package}</p>}
+                </div>
+
+                {/* Grid header */}
+                <div className="hidden sm:grid grid-cols-6 gap-2 text-xs font-medium text-gray-600 px-2">
+                  <div>Service</div>
+                  <div className="text-right">Qty</div>
+                  <div className="text-right">Cost / Qty</div>
+                  <div className="text-right">Sale / Qty</div>
+                  <div className="text-right">Total Cost</div>
+                  <div className="text-right">Total Sale</div>
+                </div>
+
+                {(formData.costingRows ?? []).map((row, idx) => {
+                  const qty = toNum(row.quantity);
+                  const cpq = toNum(row.costPerQty);
+                  const spq = toNum(row.salePerQty);
+                  const totalCost = qty * cpq;
+                  const totalSale = qty * spq;
+                  const profit = totalSale - totalCost;
+                  return (
+                    <div key={idx} className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-center p-2 border border-gray-200 rounded-lg">
+                      <div>
+                        <input
+                          type="text"
+                          value={row.label}
+                          onChange={(e) => {
+                            const next = [...(formData.costingRows ?? [])];
+                            next[idx] = { ...next[idx], label: e.target.value };
+                            updateForm({ costingRows: next });
+                          }}
+                          placeholder="e.g. Flights"
+                          className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
+                            errors[`cost_${idx}_label`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <input
+                          type="number"
+                          value={row.quantity}
+                          onChange={(e) => {
+                            const next = [...(formData.costingRows ?? [])];
+                            next[idx] = { ...next[idx], quantity: Number(e.target.value || 0) };
+                            updateForm({ costingRows: next });
+                          }}
+                          className={`w-full px-3 py-2 text-right border-b focus:outline-none transition-colors ${
+                            errors[`cost_${idx}_qty`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <input
+                          type="number"
+                          value={row.costPerQty}
+                          onChange={(e) => {
+                            const next = [...(formData.costingRows ?? [])];
+                            next[idx] = { ...next[idx], costPerQty: Number(e.target.value || 0) };
+                            updateForm({ costingRows: next });
+                          }}
+                          className={`w-full px-3 py-2 text-right border-b focus:outline-none transition-colors ${
+                            errors[`cost_${idx}_cpq`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <input
+                          type="number"
+                          value={row.salePerQty}
+                          onChange={(e) => {
+                            const next = [...(formData.costingRows ?? [])];
+                            next[idx] = { ...next[idx], salePerQty: Number(e.target.value || 0) };
+                            updateForm({ costingRows: next });
+                          }}
+                          className={`w-full px-3 py-2 text-right border-b focus:outline-none transition-colors ${
+                            errors[`cost_${idx}_spq`] ? 'border-red-500' : 'border-gray-300 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                      <div className="text-right text-sm font-medium text-gray-900">{totalCost.toLocaleString()}</div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-right text-sm font-medium text-gray-900 flex-1">
+                          {totalSale.toLocaleString()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = [...(formData.costingRows ?? [])];
+                            next.splice(idx, 1);
+                            updateForm({ costingRows: next });
+                          }}
+                          className="ml-2 text-red-600 hover:text-red-700"
+                          title="Remove row"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="sm:col-span-6 text-xs text-gray-500">
+                        Profit for this row:{' '}
+                        <span className="font-semibold text-gray-700">{profit.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Totals */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
+                  <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <p className="text-xs text-gray-500">Total Cost P</p>
+                    <p className="text-lg font-semibold">{costingTotals.sumCost.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <p className="text-xs text-gray-500">Total Sale P</p>
+                    <p className="text-lg font-semibold">{costingTotals.sumSale.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <p className="text-xs text-gray-500">Profit</p>
+                    <p className="text-lg font-semibold">{costingTotals.profit.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Additional Services</label>
+                  <textarea
+                    name="additionalServices"
+                    value={formData.additionalServices}
+                    onChange={handleInputChange}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Any extras..."
+                  />
+                </div>
+
+                {/* Payment method */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+                  <select
+                    name="paymentMethod"
+                    value={formData.paymentMethod}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="credit_card">Credit Card</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cash">Cash</option>
+                    <option value="installments">Installments</option>
+                  </select>
                 </div>
               </div>
             )}
@@ -973,7 +1554,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit }
                 disabled={submitting}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
               >
-                {submitting ? 'Creating…' : 'Create Booking'}
+                {submitting ? (bookingId ? 'Updating…' : 'Saving…') : bookingId ? 'Update Booking' : 'Create Booking'}
               </button>
             ) : (
               <button
