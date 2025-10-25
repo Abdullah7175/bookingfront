@@ -103,11 +103,15 @@ function ensureArray<T>(v: T[] | T | undefined | null): T[] {
 
 /** Build a normalized object for PDF so every section exists */
 function normalizeForPdf(b: any) {
-  // Handle the actual stored data structure (frontend sends hotelName, backend stores it as-is)
+  // Handle the actual stored data structure from API response
   const hotels = ensureArray(b?.hotels).length ? ensureArray(b.hotels) : (b?.hotel ? [b.hotel] : []);
-  const visas = ensureArray(b?.visas).length ? ensureArray(b.visas) : [];
-  const legs = b?.transport?.legs ? ensureArray(b.transport.legs) : [];
-  const costingRows = b?.pricing?.table ? ensureArray(b.pricing.table) : (b?.costingRows ? ensureArray(b.costingRows) : []);
+  const visas = Array.isArray(b?.visas) ? ensureArray(b.visas) : 
+                b?.visas?.passengers ? ensureArray(b.visas.passengers) : [];
+  const legs = b?.transport?.legs ? ensureArray(b.transport.legs) : 
+               b?.transportation?.legs ? ensureArray(b.transportation.legs) : [];
+  const costingRows = b?.pricing?.table ? ensureArray(b.pricing.table) : 
+                      b?.costing?.rows ? ensureArray(b.costing.rows) : 
+                      (b?.costingRows ? ensureArray(b.costingRows) : []);
 
   return {
     id: b?._id || b?.id || '',
@@ -329,54 +333,73 @@ const Bookings: React.FC = () => {
   };
 
   // NEW: Full edit opens BookingModal with initialData + bookingId
-  const handleOpenFullEdit = (booking: UiBooking) => {
-    // Hydrate initialData matching BookingModal's BookingFormData
-    const initialData = {
-      // contact
-      name: booking.customer,
-      email: booking.email,
-      contactNumber: booking.phone,
-      passengers: booking.passengers ?? '',
-      adults: booking.adults ?? '',
-      children: booking.children ?? '',
+  const handleOpenFullEdit = async (booking: UiBooking) => {
+    try {
+      // Fetch the latest booking data from API to get the actual stored structure
+      const { data: apiBooking } = await http.get(`/api/bookings/${booking.id}`);
+      
+      console.log("=== API BOOKING DATA FOR EDIT ===");
+      console.log("Raw API data:", JSON.stringify(apiBooking, null, 2));
+      console.log("=================================");
+      
+      // Map the API response to BookingFormData structure
+      const initialData = {
+        // contact
+        name: apiBooking?.customerName || '',
+        email: apiBooking?.customerEmail || '',
+        contactNumber: apiBooking?.contactNumber || '',
+        passengers: apiBooking?.passengers || '',
+        adults: apiBooking?.adults || '',
+        children: apiBooking?.children || '',
 
-      // flights
-      departureCity: booking.flight?.departureCity ?? (booking as any)['departureCity'] ?? '',
-      arrivalCity: booking.flight?.arrivalCity ?? (booking as any)['arrivalCity'] ?? '',
-      departureDate: booking.flight?.departureDate ?? (booking as any)['departureDate'] ?? '',
-      returnDate: booking.flight?.returnDate ?? (booking as any)['returnDate'] ?? '',
-      flightClass: booking.flight?.flightClass ?? 'economy',
-      pnr: booking.flight?.pnr ?? booking.pnr ?? '',
-      flightsItinerary: booking.flight?.itinerary ?? '',
+        // flights
+        departureCity: apiBooking?.flight?.departureCity || '',
+        arrivalCity: apiBooking?.flight?.arrivalCity || '',
+        departureDate: apiBooking?.flight?.departureDate || '',
+        returnDate: apiBooking?.flight?.returnDate || '',
+        flightClass: apiBooking?.flight?.flightClass || 'economy',
+        pnr: apiBooking?.pnr || '',
+        flightsItinerary: apiBooking?.flights?.raw || '',
 
-      // hotels
-      hotels: Array.isArray(booking.hotels) ? booking.hotels : booking.hotel ? [booking.hotel] : [],
+        // hotels - handle both array and single hotel
+        hotels: Array.isArray(apiBooking?.hotels) ? apiBooking.hotels : 
+                apiBooking?.hotel ? [apiBooking.hotel] : [],
 
-      // visas
-      visas: Array.isArray(booking.visas) ? booking.visas : booking.visa ? [booking.visa] : [],
-      visasCount: Array.isArray(booking.visas) ? booking.visas.length : booking.visa ? 1 : 0,
+        // visas - handle both array and nested structure
+        visas: Array.isArray(apiBooking?.visas) ? apiBooking.visas : 
+               apiBooking?.visas?.passengers ? apiBooking.visas.passengers : [],
+        visasCount: Array.isArray(apiBooking?.visas) ? apiBooking.visas.length : 
+                   apiBooking?.visas?.passengers ? apiBooking.visas.passengers.length : 0,
 
-      // transport
-      legs: booking.transport?.legs ?? [],
-      legsCount: booking.transport?.legs?.length ?? 0,
-      transportType: booking.transport?.transportType ?? 'bus',
-      pickupLocation: booking.transport?.pickupLocation ?? '',
+        // transport - handle both structures
+        legs: apiBooking?.transport?.legs || apiBooking?.transportation?.legs || [],
+        legsCount: apiBooking?.transport?.legs?.length || apiBooking?.transportation?.legs?.length || 0,
+        transportType: apiBooking?.transport?.transportType || 'bus',
+        pickupLocation: apiBooking?.transport?.pickupLocation || '',
 
-      // costing / pricing
-      package: booking.package,
-      packagePrice: booking.packagePrice ?? booking.pricing?.packagePrice ?? '',
-      additionalServices: booking.additionalServices ?? booking.pricing?.additionalServices ?? '',
-      paymentMethod: booking.paymentMethod ?? booking.payment?.method ?? 'credit_card',
-      costingRows: booking.pricing?.table ?? [],
-      totalAmount: String(booking.amount ?? booking.pricing?.totalAmount ?? ''),
+        // costing / pricing - handle both structures
+        package: apiBooking?.package || '',
+        packagePrice: apiBooking?.packagePrice || '',
+        additionalServices: apiBooking?.additionalServices || '',
+        paymentMethod: apiBooking?.paymentMethod || 'credit_card',
+        costingRows: apiBooking?.pricing?.table || apiBooking?.costing?.rows || [],
+        totalAmount: String(apiBooking?.amount || apiBooking?.pricing?.totalAmount || ''),
 
-      // booking date
-      date: (booking as any)['date'] ?? '',
-    };
+        // booking date
+        date: apiBooking?.date || '',
+      };
 
-    setEditInitial(initialData);
-    setEditId(booking.id);
-    setIsFullEditOpen(true);
+      console.log("=== MAPPED INITIAL DATA ===");
+      console.log("Mapped data:", JSON.stringify(initialData, null, 2));
+      console.log("==========================");
+
+      setEditInitial(initialData);
+      setEditId(booking.id);
+      setIsFullEditOpen(true);
+    } catch (error) {
+      console.error('Failed to fetch booking data for edit:', error);
+      alert('Failed to load booking data for editing');
+    }
   };
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
