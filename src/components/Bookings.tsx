@@ -103,10 +103,12 @@ function ensureArray<T>(v: T[] | T | undefined | null): T[] {
 
 /** Build a normalized object for PDF so every section exists */
 function normalizeForPdf(b: any) {
-  // Handle the actual stored data structure from API response
-  const hotels = ensureArray(b?.hotels).length ? ensureArray(b.hotels) : (b?.hotel ? [b.hotel] : []);
+  // Handle the actual stored data structure from API response - mixed legacy and new
+  const hotels = Array.isArray(b?.hotels) && b.hotels.length > 0 ? ensureArray(b.hotels) : 
+                b?.hotel ? [b.hotel] : [];
   const visas = Array.isArray(b?.visas) ? ensureArray(b.visas) : 
-                b?.visas?.passengers ? ensureArray(b.visas.passengers) : [];
+                b?.visas?.passengers && b.visas.passengers.length > 0 ? ensureArray(b.visas.passengers) : 
+                b?.visa ? [b.visa] : [];
   const legs = b?.transport?.legs ? ensureArray(b.transport.legs) : 
                b?.transportation?.legs ? ensureArray(b.transportation.legs) : [];
   const costingRows = b?.pricing?.table ? ensureArray(b.pricing.table) : 
@@ -125,8 +127,8 @@ function normalizeForPdf(b: any) {
 
     dates: {
       bookingDate: cleanDate(b?.date),
-      departureDate: cleanDate(b?.flight?.departureDate || b?.departureDate),
-      returnDate: cleanDate(b?.flight?.returnDate || b?.returnDate),
+      departureDate: cleanDate(b?.departureDate),
+      returnDate: cleanDate(b?.returnDate),
     },
 
     flight: {
@@ -165,7 +167,7 @@ function normalizeForPdf(b: any) {
     pricing: {
       totals: {
         totalCostPrice: b?.pricing?.totals?.totalCostPrice ?? b?.costing?.totals?.totalCost ?? 0,
-        totalSalePrice: b?.pricing?.totals?.totalSalePrice ?? b?.costing?.totals?.totalSale ?? b?.amount ?? b?.totalAmount ?? 0,
+        totalSalePrice: b?.pricing?.totals?.totalSalePrice ?? b?.costing?.totals?.totalSale ?? b?.totalAmount ?? b?.amount ?? 0,
         profit: b?.pricing?.totals?.profit ?? b?.costing?.totals?.profit ?? 0,
       },
       table: costingRows.map((r: any) => ({
@@ -338,10 +340,6 @@ const Bookings: React.FC = () => {
       // Fetch the latest booking data from API to get the actual stored structure
       const { data: apiBooking } = await http.get(`/api/bookings/${booking.id}`);
       
-      console.log("=== API BOOKING DATA FOR EDIT ===");
-      console.log("Raw API data:", JSON.stringify(apiBooking, null, 2));
-      console.log("=================================");
-      
       // Map the API response to BookingFormData structure
       const initialData = {
         // contact
@@ -355,23 +353,25 @@ const Bookings: React.FC = () => {
         // flights
         departureCity: apiBooking?.flight?.departureCity || '',
         arrivalCity: apiBooking?.flight?.arrivalCity || '',
-        departureDate: apiBooking?.flight?.departureDate || '',
-        returnDate: apiBooking?.flight?.returnDate || '',
+        departureDate: apiBooking?.departureDate || '',
+        returnDate: apiBooking?.returnDate || '',
         flightClass: apiBooking?.flight?.flightClass || 'economy',
         pnr: apiBooking?.pnr || '',
         flightsItinerary: apiBooking?.flights?.raw || '',
 
-        // hotels - handle both array and single hotel
-        hotels: Array.isArray(apiBooking?.hotels) ? apiBooking.hotels : 
+        // hotels - handle both legacy (hotel) and new (hotels) structures
+        hotels: Array.isArray(apiBooking?.hotels) && apiBooking.hotels.length > 0 ? apiBooking.hotels : 
                 apiBooking?.hotel ? [apiBooking.hotel] : [],
 
-        // visas - handle both array and nested structure
+        // visas - handle both legacy (visa) and new (visas) structures
         visas: Array.isArray(apiBooking?.visas) ? apiBooking.visas : 
-               apiBooking?.visas?.passengers ? apiBooking.visas.passengers : [],
+               apiBooking?.visas?.passengers && apiBooking.visas.passengers.length > 0 ? apiBooking.visas.passengers : 
+               apiBooking?.visa ? [apiBooking.visa] : [],
         visasCount: Array.isArray(apiBooking?.visas) ? apiBooking.visas.length : 
-                   apiBooking?.visas?.passengers ? apiBooking.visas.passengers.length : 0,
+                   apiBooking?.visas?.passengers ? apiBooking.visas.passengers.length : 
+                   apiBooking?.visa ? 1 : 0,
 
-        // transport - handle both structures
+        // transport - handle both legacy (transport) and new (transportation) structures
         legs: apiBooking?.transport?.legs || apiBooking?.transportation?.legs || [],
         legsCount: apiBooking?.transport?.legs?.length || apiBooking?.transportation?.legs?.length || 0,
         transportType: apiBooking?.transport?.transportType || 'bus',
@@ -383,15 +383,11 @@ const Bookings: React.FC = () => {
         additionalServices: apiBooking?.additionalServices || '',
         paymentMethod: apiBooking?.paymentMethod || 'credit_card',
         costingRows: apiBooking?.pricing?.table || apiBooking?.costing?.rows || [],
-        totalAmount: String(apiBooking?.amount || apiBooking?.pricing?.totalAmount || ''),
+        totalAmount: String(apiBooking?.totalAmount || apiBooking?.pricing?.totalAmount || ''),
 
         // booking date
         date: apiBooking?.date || '',
       };
-
-      console.log("=== MAPPED INITIAL DATA ===");
-      console.log("Mapped data:", JSON.stringify(initialData, null, 2));
-      console.log("==========================");
 
       setEditInitial(initialData);
       setEditId(booking.id);
