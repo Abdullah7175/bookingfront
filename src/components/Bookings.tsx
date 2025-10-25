@@ -103,11 +103,11 @@ function ensureArray<T>(v: T[] | T | undefined | null): T[] {
 
 /** Build a normalized object for PDF so every section exists */
 function normalizeForPdf(b: any) {
-  // Handle both legacy and new data structures
+  // Handle the actual data structure from buildBookingPayload
   const hotels = ensureArray(b?.hotels).length ? ensureArray(b.hotels) : (b?.hotel ? [b.hotel] : []);
-  const visas = b?.visas?.passengers ? ensureArray(b.visas.passengers) : (b?.visas ? ensureArray(b.visas) : []);
-  const legs = b?.transportation?.legs ? ensureArray(b.transportation.legs) : (b?.legs ? ensureArray(b.legs) : []);
-  const costingRows = b?.costing?.rows ? ensureArray(b.costing.rows) : (b?.pricing?.table ? ensureArray(b.pricing.table) : (b?.costingRows ? ensureArray(b.costingRows) : []));
+  const visas = ensureArray(b?.visas).length ? ensureArray(b.visas) : [];
+  const legs = b?.transport?.legs ? ensureArray(b.transport.legs) : [];
+  const costingRows = b?.pricing?.table ? ensureArray(b.pricing.table) : (b?.costingRows ? ensureArray(b.costingRows) : []);
 
   return {
     id: b?._id || b?.id || '',
@@ -141,7 +141,7 @@ function normalizeForPdf(b: any) {
     })),
 
     visas: visas.map((v: any) => ({
-      name: v?.fullName || v?.name || '',
+      name: v?.name || v?.fullName || '',
       nationality: v?.nationality || '',
       visaType: v?.visaType || b?.visaType || '',
     })),
@@ -160,9 +160,9 @@ function normalizeForPdf(b: any) {
 
     pricing: {
       totals: {
-        totalCostPrice: b?.costing?.totals?.totalCost ?? b?.pricing?.totals?.totalCostPrice ?? 0,
-        totalSalePrice: b?.costing?.totals?.totalSale ?? b?.pricing?.totals?.totalSalePrice ?? b?.amount ?? b?.totalAmount ?? 0,
-        profit: b?.costing?.totals?.profit ?? b?.pricing?.totals?.profit ?? 0,
+        totalCostPrice: b?.pricing?.totals?.totalCostPrice ?? b?.costing?.totals?.totalCost ?? 0,
+        totalSalePrice: b?.pricing?.totals?.totalSalePrice ?? b?.costing?.totals?.totalSale ?? b?.amount ?? b?.totalAmount ?? 0,
+        profit: b?.pricing?.totals?.profit ?? b?.costing?.totals?.profit ?? 0,
       },
       table: costingRows.map((r: any) => ({
         label: r?.label ?? r?.item ?? '',
