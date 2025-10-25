@@ -14,5 +14,6 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+   allowedHosts: ['miqattravels.com','https://miqattravels.com','www.miqattravels.com'],
   },
 });
