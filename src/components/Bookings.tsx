@@ -103,52 +103,52 @@ function ensureArray<T>(v: T[] | T | undefined | null): T[] {
 
 /** Build a normalized object for PDF so every section exists */
 function normalizeForPdf(b: any) {
-  // Map database fields correctly
-  const hotels = ensureArray(b?.hotels).length ? ensureArray(b.hotels) : [];
-  const visas = b?.visas?.passengers ? ensureArray(b.visas.passengers) : [];
-  const legs = b?.transportation?.legs ? ensureArray(b.transportation.legs) : [];
-  const costingRows = b?.costing?.rows ? ensureArray(b.costing.rows) : [];
+  // Handle both legacy and new data structures
+  const hotels = ensureArray(b?.hotels).length ? ensureArray(b.hotels) : (b?.hotel ? [b.hotel] : []);
+  const visas = b?.visas?.passengers ? ensureArray(b.visas.passengers) : (b?.visas ? ensureArray(b.visas) : []);
+  const legs = b?.transportation?.legs ? ensureArray(b.transportation.legs) : (b?.legs ? ensureArray(b.legs) : []);
+  const costingRows = b?.costing?.rows ? ensureArray(b.costing.rows) : (b?.pricing?.table ? ensureArray(b.pricing.table) : (b?.costingRows ? ensureArray(b.costingRows) : []));
 
   return {
     id: b?._id || b?.id || '',
-    customerName: b?.customerName || '',
-    email: b?.customerEmail || '',
+    customerName: b?.customerName || b?.customer || '',
+    email: b?.customerEmail || b?.email || '',
     phone: b?.contactNumber || b?.phone || '',
     agentName: b?.agent?.name || b?.agentName || '',
-    pkg: b?.package || '',
+    pkg: b?.package || b?.pricing?.packageName || '',
     status: b?.status || 'pending',
     approvalStatus: b?.approvalStatus || 'pending',
 
     dates: {
       bookingDate: cleanDate(b?.date),
-      departureDate: cleanDate(b?.departureDate),
-      returnDate: cleanDate(b?.returnDate),
+      departureDate: cleanDate(b?.flight?.departureDate || b?.departureDate),
+      returnDate: cleanDate(b?.flight?.returnDate || b?.returnDate),
     },
 
     flight: {
-      itinerary: b?.flights?.raw || '',
-      route: [b?.departureCity, b?.arrivalCity].filter(Boolean).join(' → '),
-      class: b?.flightClass || '',
-      pnr: (b?.pnr || '').toUpperCase(),
-      payment: b?.flightPayments?.mode || '',
+      itinerary: b?.flights?.raw || b?.flight?.itinerary || '',
+      route: [b?.flight?.departureCity || b?.departureCity, b?.flight?.arrivalCity || b?.arrivalCity].filter(Boolean).join(' → '),
+      class: b?.flight?.flightClass || b?.flightClass || '',
+      pnr: (b?.flight?.pnr || b?.pnr || '').toUpperCase(),
+      payment: b?.flightPayments?.mode || b?.flight?.paymentMethod || '',
     },
 
     hotels: hotels.map((h: any) => ({
-      hotelName: h?.name || '',
+      hotelName: h?.hotelName || h?.name || '',
       roomType: h?.roomType || '',
       checkIn: cleanDate(h?.checkIn),
       checkOut: cleanDate(h?.checkOut),
     })),
 
     visas: visas.map((v: any) => ({
-      name: v?.fullName || '',
+      name: v?.fullName || v?.name || '',
       nationality: v?.nationality || '',
-      visaType: v?.visaType || '',
+      visaType: v?.visaType || b?.visaType || '',
     })),
 
     transport: {
-      pickupLocation: b?.pickupLocation || '',
-      transportType: b?.transportType || '',
+      pickupLocation: b?.transport?.pickupLocation || b?.pickupLocation || '',
+      transportType: b?.transport?.transportType || b?.transportType || '',
       legs: legs.map((l: any) => ({
         from: l?.from || '',
         to: l?.to || '',
@@ -160,29 +160,29 @@ function normalizeForPdf(b: any) {
 
     pricing: {
       totals: {
-        totalCostPrice: b?.costing?.totals?.totalCost ?? 0,
-        totalSalePrice: b?.costing?.totals?.totalSale ?? b?.totalAmount ?? 0,
-        profit: b?.costing?.totals?.profit ?? 0,
+        totalCostPrice: b?.costing?.totals?.totalCost ?? b?.pricing?.totals?.totalCostPrice ?? 0,
+        totalSalePrice: b?.costing?.totals?.totalSale ?? b?.pricing?.totals?.totalSalePrice ?? b?.amount ?? b?.totalAmount ?? 0,
+        profit: b?.costing?.totals?.profit ?? b?.pricing?.totals?.profit ?? 0,
       },
       table: costingRows.map((r: any) => ({
-        label: r?.item ?? '',
+        label: r?.label ?? r?.item ?? '',
         quantity: Number(r?.quantity ?? 0),
         costPerQty: Number(r?.costPerQty ?? 0),
         salePerQty: Number(r?.salePerQty ?? 0),
-        totalCost: Number(r?.quantity ?? 0) * Number(r?.costPerQty ?? 0),
-        totalSale: Number(r?.quantity ?? 0) * Number(r?.salePerQty ?? 0),
-        profit: (Number(r?.quantity ?? 0) * Number(r?.salePerQty ?? 0)) - (Number(r?.quantity ?? 0) * Number(r?.costPerQty ?? 0)),
+        totalCost: r?.totalCost ?? Number(r?.quantity ?? 0) * Number(r?.costPerQty ?? 0),
+        totalSale: r?.totalSale ?? Number(r?.quantity ?? 0) * Number(r?.salePerQty ?? 0),
+        profit: r?.profit ?? (Number(r?.quantity ?? 0) * Number(r?.salePerQty ?? 0)) - (Number(r?.quantity ?? 0) * Number(r?.costPerQty ?? 0)),
       })),
-      packagePrice: Number(b?.packagePrice ?? 0),
-      additionalServices: b?.additionalServices ?? '',
-      paymentMethod: b?.paymentMethod ?? '',
+      packagePrice: Number(b?.packagePrice ?? b?.pricing?.packagePrice ?? 0),
+      additionalServices: b?.additionalServices ?? b?.pricing?.additionalServices ?? '',
+      paymentMethod: b?.paymentMethod ?? b?.pricing?.paymentMethod ?? '',
     },
 
     payment: {
-      method: b?.flightPayments?.mode || '',
-      cardLast4: b?.cardLast4 || '',
-      cardholderName: b?.cardholderName || '',
-      expiryDate: b?.expiryDate || '',
+      method: b?.flightPayments?.mode || b?.payment?.method || b?.paymentMethod || '',
+      cardLast4: b?.payment?.cardLast4 || b?.cardLast4 || '',
+      cardholderName: b?.payment?.cardholderName || b?.cardholderName || '',
+      expiryDate: b?.payment?.expiryDate || b?.expiryDate || '',
     },
 
     pax: {
