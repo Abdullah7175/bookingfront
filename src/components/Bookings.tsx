@@ -103,7 +103,7 @@ function ensureArray<T>(v: T[] | T | undefined | null): T[] {
 
 /** Build a normalized object for PDF so every section exists */
 function normalizeForPdf(b: any) {
-  // Handle the actual data structure from buildBookingPayload
+  // Handle the actual stored data structure (frontend sends hotelName, backend stores it as-is)
   const hotels = ensureArray(b?.hotels).length ? ensureArray(b.hotels) : (b?.hotel ? [b.hotel] : []);
   const visas = ensureArray(b?.visas).length ? ensureArray(b.visas) : [];
   const legs = b?.transport?.legs ? ensureArray(b.transport.legs) : [];
