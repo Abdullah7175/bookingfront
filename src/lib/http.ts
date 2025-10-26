@@ -4,11 +4,9 @@ import axios, { InternalAxiosRequestConfig } from "axios";
 /** ---------- Config ---------- **/
 const API_BASE =
   import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV 
-    ? "http://localhost:7000" // Local development
-    : (typeof window !== "undefined"
-      ? `${window.location.protocol}//${window.location.hostname}:7000` // Production with port
-      : "http://localhost:7000"));
+  (typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}`
+    : "http://localhost:7000");
 
 const isDev = import.meta.env.DEV === true;
 
