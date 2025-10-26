@@ -7,7 +7,7 @@ const API_BASE =
   (import.meta.env.DEV 
     ? "http://localhost:7000" // Explicitly use backend URL in development
     : (typeof window !== "undefined"
-      ? `${window.location.protocol}//${window.location.hostname}:7000`
+      ? `https://miqattravels.com:7000` // Production backend URL
       : "http://localhost:7000"));
 
 const isDev = import.meta.env.DEV === true;
