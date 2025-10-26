@@ -5,9 +5,9 @@ import axios, { InternalAxiosRequestConfig } from "axios";
 const API_BASE =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.DEV 
-    ? "http://localhost:7000" // Explicitly use backend URL in development
+    ? "http://localhost:7000" // Local development
     : (typeof window !== "undefined"
-      ? `http://172.31.28.145:7000` // Production backend URL (direct server IP)
+      ? `${window.location.protocol}//${window.location.hostname}:7000` // Production with port
       : "http://localhost:7000"));
 
 const isDev = import.meta.env.DEV === true;
