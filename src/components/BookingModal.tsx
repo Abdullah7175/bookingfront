@@ -26,7 +26,8 @@ type FlightLeg = {
 };
 
 type HotelEntry = {
-  hotelName: string;
+  hotelName?: string;
+  name?: string; // Database uses 'name' field
   roomType: string;
   checkIn: string; // YYYY-MM-DD
   checkOut: string; // YYYY-MM-DD
@@ -220,7 +221,7 @@ export function validateStepData(formData: BookingFormData, id: StepId): Record<
 
 type MinimalUser = { id?: string; _id?: string; agentId?: string; };
 
-export function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null | undefined) {
+function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null | undefined) {
   const agentId =
     user?.agentId ?? user?.id ?? user?._id ?? (formData.agent || undefined);
 
@@ -268,6 +269,7 @@ export function buildBookingPayload(formData: BookingFormData, user: MinimalUser
     children: formData.children || '',
 
     // IDENTIFIERS
+    agent: agentId,  // Backend expects 'agent' field, not 'agentId'
     agentId,
     customerGroup: customerEmail,
 
@@ -312,15 +314,17 @@ export function buildBookingPayload(formData: BookingFormData, user: MinimalUser
     arrivalCity: formData.arrivalCity || '',
     flightClass: formData.flightClass || 'economy',
 
-    // HOTELS
+    // HOTELS - Use 'name' field as per database schema
     hotels: (formData.hotels ?? []).map((h) => ({
-      hotelName: h.hotelName || '',
+      name: h.hotelName || h.name || '',
+      hotelName: h.hotelName || h.name || '', // Keep both for compatibility
       roomType: h.roomType || '',
       checkIn: isoOrNull(h.checkIn) || '',
       checkOut: isoOrNull(h.checkOut) || '',
     })),
     hotel: {
-      hotelName: formData.hotelName || '',
+      name: formData.hotelName || '',
+      hotelName: formData.hotelName || '', // Keep both for compatibility
       roomType: formData.roomType || '',
       checkIn: isoOrNull(formData.checkIn) || '',
       checkOut: isoOrNull(formData.checkOut) || '',
@@ -458,14 +462,47 @@ const BookingModal: React.FC<BookingModalProps> = ({
   // EDIT MODE: hydrate from initialData when opened
   useEffect(() => {
     if (isOpen && initialData) {
+      // Ensure all string fields are properly initialized to avoid controlled/uncontrolled warnings
+      const sanitizedInitialData = {
+        ...initialData,
+        // Ensure all string fields are strings, not undefined
+        name: initialData.name || '',
+        email: initialData.email || '',
+        contactNumber: initialData.contactNumber || '',
+        passengers: initialData.passengers || '',
+        adults: initialData.adults || '',
+        children: initialData.children || '',
+        departureCity: initialData.departureCity || '',
+        arrivalCity: initialData.arrivalCity || '',
+        departureDate: initialData.departureDate || '',
+        returnDate: initialData.returnDate || '',
+        pnr: initialData.pnr || '',
+        flightsItinerary: initialData.flightsItinerary || '',
+        hotelName: initialData.hotelName || '',
+        roomType: initialData.roomType || '',
+        checkIn: initialData.checkIn || '',
+        checkOut: initialData.checkOut || '',
+        visaType: initialData.visaType || 'umrah',
+        passportNumber: initialData.passportNumber || '',
+        nationality: initialData.nationality || '',
+        transportType: initialData.transportType || 'bus',
+        pickupLocation: initialData.pickupLocation || '',
+        packagePrice: initialData.packagePrice || '',
+        additionalServices: initialData.additionalServices || '',
+        totalAmount: initialData.totalAmount || '',
+        package: initialData.package || '',
+        date: initialData.date || '',
+      };
+
       const merged: BookingFormData = {
         ...empty,
-        ...initialData,
+        ...sanitizedInitialData,
         hotels: initialData.hotels && initialData.hotels.length > 0 ? initialData.hotels : emptyHotels,
         visas: initialData.visas ?? emptyVisas,
         legs: initialData.legs ?? emptyLegs,
         costingRows: initialData.costingRows && initialData.costingRows.length > 0 ? initialData.costingRows : starterCosting,
       } as BookingFormData;
+      
       setBookings([merged]);
       setFormData(merged);
       setCurrentBookingIndex(0);

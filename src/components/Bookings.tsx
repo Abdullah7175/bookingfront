@@ -108,7 +108,11 @@ function normalizeForPdf(b: any) {
                 b?.hotel ? [b.hotel] : [];
   const visas = Array.isArray(b?.visas) ? ensureArray(b.visas) : 
                 b?.visas?.passengers && b.visas.passengers.length > 0 ? ensureArray(b.visas.passengers) : 
-                b?.visa ? [b.visa] : [];
+                b?.visa && Object.keys(b.visa).length > 0 ? [{
+                  name: b?.customerName || '', // Use customer name as passenger name
+                  nationality: b.visa.nationality || '',
+                  visaType: b.visa.visaType || '',
+                }] : [];
   const legs = b?.transport?.legs ? ensureArray(b.transport.legs) : 
                b?.transportation?.legs ? ensureArray(b.transportation.legs) : [];
   const costingRows = b?.pricing?.table ? ensureArray(b.pricing.table) : 
@@ -140,14 +144,14 @@ function normalizeForPdf(b: any) {
     },
 
     hotels: hotels.map((h: any) => ({
-      hotelName: h?.hotelName || h?.name || '',
+      hotelName: h?.name || h?.hotelName || '',
       roomType: h?.roomType || '',
       checkIn: cleanDate(h?.checkIn),
       checkOut: cleanDate(h?.checkOut),
     })),
 
     visas: visas.map((v: any) => ({
-      name: v?.name || v?.fullName || '',
+      name: v?.name || v?.fullName || v?.passengerName || '',
       nationality: v?.nationality || '',
       visaType: v?.visaType || b?.visaType || '',
     })),
@@ -167,7 +171,8 @@ function normalizeForPdf(b: any) {
     pricing: {
       totals: {
         totalCostPrice: b?.pricing?.totals?.totalCostPrice ?? b?.costing?.totals?.totalCost ?? 0,
-        totalSalePrice: b?.pricing?.totals?.totalSalePrice ?? b?.costing?.totals?.totalSale ?? b?.totalAmount ?? b?.amount ?? 0,
+        // Prioritize 'amount' field (actual database value) over 'totalAmount'
+        totalSalePrice: b?.amount ?? b?.totalAmount ?? b?.pricing?.totals?.totalSalePrice ?? b?.costing?.totals?.totalSale ?? 0,
         profit: b?.pricing?.totals?.profit ?? b?.costing?.totals?.profit ?? 0,
       },
       table: costingRows.map((r: any) => ({
@@ -340,9 +345,11 @@ const Bookings: React.FC = () => {
       // Fetch the latest booking data from API to get the actual stored structure
       const { data: apiBooking } = await http.get(`/api/bookings/${booking.id}`);
       
+
+      
       // Map the API response to BookingFormData structure
-      const initialData = {
-        // contact
+    const initialData = {
+      // contact
         name: apiBooking?.customerName || '',
         email: apiBooking?.customerEmail || '',
         contactNumber: apiBooking?.contactNumber || '',
@@ -350,7 +357,7 @@ const Bookings: React.FC = () => {
         adults: apiBooking?.adults || '',
         children: apiBooking?.children || '',
 
-        // flights
+      // flights
         departureCity: apiBooking?.flight?.departureCity || '',
         arrivalCity: apiBooking?.flight?.arrivalCity || '',
         departureDate: apiBooking?.departureDate || '',
@@ -359,23 +366,43 @@ const Bookings: React.FC = () => {
         pnr: apiBooking?.pnr || '',
         flightsItinerary: apiBooking?.flights?.raw || '',
 
-        // hotels - handle both legacy (hotel) and new (hotels) structures
-        hotels: Array.isArray(apiBooking?.hotels) && apiBooking.hotels.length > 0 ? apiBooking.hotels : 
-                apiBooking?.hotel ? [apiBooking.hotel] : [],
+        // hotels - map both legacy single fields AND array
+        hotelName: apiBooking?.hotel?.name || apiBooking?.hotel?.hotelName || '',
+        roomType: apiBooking?.hotel?.roomType || '',
+        checkIn: apiBooking?.hotel?.checkIn || '',
+        checkOut: apiBooking?.hotel?.checkOut || '',
+        hotels: (Array.isArray(apiBooking?.hotels) && apiBooking.hotels.length > 0) 
+          ? apiBooking.hotels.map((h: any) => ({
+              hotelName: h.name || h.hotelName || '', // Map 'name' to 'hotelName' for frontend
+              name: h.name || h.hotelName || '',
+              roomType: h.roomType || '',
+              checkIn: h.checkIn || '',
+              checkOut: h.checkOut || '',
+            }))
+          : (apiBooking?.hotel ? [{
+              hotelName: apiBooking.hotel.name || apiBooking.hotel.hotelName || '',
+              name: apiBooking.hotel.name || apiBooking.hotel.hotelName || '',
+              roomType: apiBooking.hotel.roomType || '',
+              checkIn: apiBooking.hotel.checkIn || '',
+              checkOut: apiBooking.hotel.checkOut || '',
+            }] : []),
 
-        // visas - handle both legacy (visa) and new (visas) structures
-        visas: Array.isArray(apiBooking?.visas) ? apiBooking.visas : 
-               apiBooking?.visas?.passengers && apiBooking.visas.passengers.length > 0 ? apiBooking.visas.passengers : 
-               apiBooking?.visa ? [apiBooking.visa] : [],
-        visasCount: Array.isArray(apiBooking?.visas) ? apiBooking.visas.length : 
-                   apiBooking?.visas?.passengers ? apiBooking.visas.passengers.length : 
-                   apiBooking?.visa ? 1 : 0,
+        // visas - map both legacy single fields AND array
+        visaType: apiBooking?.visa?.visaType || 'umrah',
+        passportNumber: apiBooking?.visa?.passportNumber || '',
+        nationality: apiBooking?.visa?.nationality || '',
+        visas: apiBooking?.visa ? [apiBooking.visa] :
+               (Array.isArray(apiBooking?.visas) ? apiBooking.visas : 
+                (apiBooking?.visas?.passengers && apiBooking.visas.passengers.length > 0 ? apiBooking.visas.passengers : [])),
+        visasCount: apiBooking?.visa ? 1 :
+                    (Array.isArray(apiBooking?.visas) ? apiBooking.visas.length : 
+                     (apiBooking?.visas?.passengers ? apiBooking.visas.passengers.length : 0)),
 
-        // transport - handle both legacy (transport) and new (transportation) structures
-        legs: apiBooking?.transport?.legs || apiBooking?.transportation?.legs || [],
-        legsCount: apiBooking?.transport?.legs?.length || apiBooking?.transportation?.legs?.length || 0,
+        // transport - map both legacy single fields AND array
         transportType: apiBooking?.transport?.transportType || 'bus',
         pickupLocation: apiBooking?.transport?.pickupLocation || '',
+        legs: apiBooking?.transport?.legs || apiBooking?.transportation?.legs || [],
+        legsCount: apiBooking?.transport?.legs?.length || apiBooking?.transportation?.legs?.length || 0,
 
         // costing / pricing - handle both structures
         package: apiBooking?.package || '',
@@ -385,13 +412,13 @@ const Bookings: React.FC = () => {
         costingRows: apiBooking?.pricing?.table || apiBooking?.costing?.rows || [],
         totalAmount: String(apiBooking?.totalAmount || apiBooking?.pricing?.totalAmount || ''),
 
-        // booking date
+      // booking date
         date: apiBooking?.date || '',
-      };
+    };
 
-      setEditInitial(initialData);
-      setEditId(booking.id);
-      setIsFullEditOpen(true);
+    setEditInitial(initialData);
+    setEditId(booking.id);
+    setIsFullEditOpen(true);
     } catch (error) {
       console.error('Failed to fetch booking data for edit:', error);
       alert('Failed to load booking data for editing');
@@ -484,181 +511,360 @@ const Bookings: React.FC = () => {
       const jsPDF = (jsPDFMod as any).default || jsPDFMod;
       const autoTable = (autoTableMod as any).default || autoTableMod;
 
-      const doc = new jsPDF({ unit: 'pt' });
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
       let y = 40;
 
-      // Header
-      doc.setFontSize(16);
-      doc.text('Booking Summary', 40, y);
+      // Professional Header with Background
+      doc.setFillColor(0, 105, 217);
+      doc.rect(0, 0, pageWidth, 80, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(24);
+      doc.setFont(undefined, 'bold');
+      doc.text('MiQAT TRAVELS', pageWidth / 2, 30, { align: 'center' });
+      doc.setFontSize(14);
+      doc.setFont(undefined, 'normal');
+      // doc.text('Travel Booking Receipt', pageWidth / 2, 48, { align: 'center' });
+      doc.setFontSize(10);
+      doc.text(`Booking ID: ${full.id}`, pageWidth / 2, 60, { align: 'center' });
+      
+      y = 100;
+      doc.setTextColor(0, 0, 0);
+
+      // Status Box
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(40, y, pageWidth - 80, 40, 3, 3, 'S');
+      doc.setFontSize(10);
+      doc.text(`Status: ${full.status.toUpperCase()}`, 55, y + 25);
+      doc.text(`Approval: ${full.approvalStatus.toUpperCase()}`, pageWidth / 2 + 20, y + 25);
+      y += 55;
+
+      // Two-Column Layout
+      const leftColumn = 40;
+      const rightColumn = 300;
+      
+      // Left Column - Customer Information
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.text('CUSTOMER INFORMATION', leftColumn, y);
       y += 20;
       doc.setFontSize(10);
-      doc.text(`Booking ID: ${full.id}`, 40, y);
-      y += 14;
-      doc.text(`Status: ${full.status} | Approval: ${full.approvalStatus}`, 40, y);
-      y += 6;
-      doc.text(`Package: ${full.pkg}`, 40, y);
-      y += 16;
+      doc.setFont(undefined, 'normal');
+      doc.text(`Name: ${full.customerName}`, leftColumn, y);
+      y += 15;
+      doc.text(`Email: ${full.email}`, leftColumn, y);
+      y += 15;
+      doc.text(`Phone: ${full.phone}`, leftColumn, y);
+      y += 15;
+      doc.text(`Agent: ${full.agentName || 'Not Assigned'}`, leftColumn, y);
+      y += 30;
 
-      // Contact
+      // Right Column - Travel Dates
+      y = 155;
       doc.setFontSize(12);
-      doc.text('Contact', 40, y);
-      y += 12;
+      doc.setFont(undefined, 'bold');
+      doc.text('TRAVEL DATES', rightColumn, y);
+      y += 20;
       doc.setFontSize(10);
-      doc.text(`Customer: ${full.customerName}`, 40, y);
-      y += 12;
-      doc.text(`Email: ${full.email}`, 40, y);
-      y += 12;
-      doc.text(`Phone: ${full.phone}`, 40, y);
-      y += 12;
-      doc.text(`Agent: ${full.agentName || '—'}`, 40, y);
-      y += 18;
+      doc.setFont(undefined, 'normal');
+      doc.text(`Booking Date: ${full.dates.bookingDate || '—'}`, rightColumn, y);
+      y += 15;
+      doc.text(`Departure: ${full.dates.departureDate || '—'}`, rightColumn, y);
+      y += 15;
+      doc.text(`Return: ${full.dates.returnDate || '—'}`, rightColumn, y);
+      y += 15;
+      doc.text(`Package: ${full.pkg}`, rightColumn, y);
+      y = 225;
 
-      // Dates
+      // Flight Section
+      doc.setFillColor(240, 240, 240);
+      doc.rect(leftColumn, y, pageWidth - 80, 35, 'F');
       doc.setFontSize(12);
-      doc.text('Dates', 40, y);
-      y += 12;
+      doc.setFont(undefined, 'bold');
+      doc.text('FLIGHT DETAILS', leftColumn + 5, y + 22);
+      y += 45;
+      
       doc.setFontSize(10);
-      doc.text(`Booking: ${full.dates.bookingDate || '—'}`, 40, y);
-      y += 12;
-      doc.text(`Departure: ${full.dates.departureDate || '—'}`, 40, y);
-      y += 12;
-      doc.text(`Return: ${full.dates.returnDate || '—'}`, 40, y);
-      y += 18;
-
-      // Flight
-      doc.setFontSize(12);
-      doc.text('Flight', 40, y);
-      y += 12;
-      doc.setFontSize(10);
+      doc.setFont(undefined, 'normal');
       if (full.flight.route) {
-        doc.text(`Route: ${full.flight.route}`, 40, y);
-        y += 12;
+        doc.text(`Route: ${full.flight.route}`, leftColumn, y);
+        y += 15;
       }
       if (full.flight.class) {
-        doc.text(`Class: ${full.flight.class}`, 40, y);
-        y += 12;
+        doc.text(`Class: ${full.flight.class}`, leftColumn, y);
+        y += 15;
       }
       if (full.flight.pnr) {
-        doc.text(`PNR: ${full.flight.pnr}`, 40, y);
-        y += 12;
-      }
-      if (full.flight.payment) {
-        doc.text(`Payment: ${full.flight.payment}`, 40, y);
-        y += 12;
+        doc.text(`PNR: ${full.flight.pnr}`, leftColumn, y);
+        y += 15;
       }
       if (full.flight.itinerary) {
-        doc.text('Itinerary:', 40, y);
+        doc.text('Flight Itinerary:', leftColumn, y);
+        y += 15;
+        const lines = String(full.flight.itinerary).split('\n');
+        lines.forEach((line: string) => {
+          if (line.trim()) {
+            doc.text(line.trim(), leftColumn + 10, y);
         y += 12;
-        String(full.flight.itinerary)
-          .split('\n')
-          .forEach((line: string) => {
-            doc.text(line, 54, y);
-            y += 12;
-          });
-        y += 6;
+          }
+        });
+        y += 10;
       }
 
-      // Hotels
+      // Hotels Section
       if (full.hotels.length) {
-        autoTable(doc, {
-          startY: y,
-          head: [['Hotel', 'Room', 'Check-in', 'Check-out']],
-          body: full.hotels.map((h: any) => [h.hotelName, h.roomType, h.checkIn || '—', h.checkOut || '—']),
-          styles: { fontSize: 9 },
-        });
-      
-        y = (doc as any).lastAutoTable.finalY + 16;
-      }
-
-      // Visas
-      if (full.visas.length) {
-        autoTable(doc, {
-          startY: y,
-          head: [['Name', 'Nationality', 'Type']],
-          body: full.visas.map((v: any) => [v.name, v.nationality, v.visaType]),
-          styles: { fontSize: 9 },
-        });
-      
-        y = (doc as any).lastAutoTable.finalY + 16;
-      }
-
-      // Transport legs
-      if (full.transport.legs.length) {
-        autoTable(doc, {
-          startY: y,
-          head: [['From', 'To', 'Vehicle', 'Date', 'Time']],
-          body: full.transport.legs.map((l: any) => [l.from, l.to, l.vehicleType, l.date || '—', l.time || '—']),
-          styles: { fontSize: 9 },
-        });
-      
-        y = (doc as any).lastAutoTable.finalY + 16;
-      } else if (full.transport.transportType || full.transport.pickupLocation) {
+        y += 10;
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
         doc.setFontSize(12);
-        doc.text('Transport', 40, y);
-        y += 12;
+        doc.setFont(undefined, 'bold');
+        doc.text('ACCOMMODATION DETAILS', leftColumn + 5, y + 20);
+        y += 40;
+        
+        autoTable(doc, {
+          startY: y,
+          head: [['Hotel Name', 'Room Type', 'Check-in', 'Check-out']],
+          body: full.hotels.map((h: any) => [
+            h.hotelName || 'Not specified', 
+            h.roomType || 'Standard', 
+            h.checkIn || '—', 
+            h.checkOut || '—'
+          ]),
+          styles: { fontSize: 10 },
+          headStyles: { fillColor: [0, 105, 217], textColor: [255, 255, 255], fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 249, 250] },
+        });
+      
+        y = (doc as any).lastAutoTable.finalY + 20;
+      }
+
+      // Visas Section
+      if (full.visas.length) {
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'bold');
+        doc.text('VISA INFORMATION', leftColumn + 5, y + 20);
+        y += 40;
+        
+        autoTable(doc, {
+          startY: y,
+          head: [['Passenger Name', 'Nationality', 'Visa Type']],
+          body: full.visas.map((v: any) => [
+            v.name || '—', 
+            v.nationality || '—', 
+            v.visaType || '—'
+          ]),
+          styles: { fontSize: 10 },
+          headStyles: { fillColor: [0, 105, 217], textColor: [255, 255, 255], fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 249, 250] },
+        });
+      
+        y = (doc as any).lastAutoTable.finalY + 20;
+      }
+
+      // Transport Section
+      if (full.transport.legs.length) {
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'bold');
+        doc.text('TRANSPORTATION DETAILS', leftColumn + 5, y + 20);
+        y += 40;
+        
+        autoTable(doc, {
+          startY: y,
+          head: [['From', 'To', 'Vehicle Type', 'Date', 'Time']],
+          body: full.transport.legs.map((l: any) => [
+            l.from || '—', 
+            l.to || '—', 
+            l.vehicleType || '—', 
+            l.date || '—', 
+            l.time || '—'
+          ]),
+          styles: { fontSize: 10 },
+          headStyles: { fillColor: [0, 105, 217], textColor: [255, 255, 255], fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 249, 250] },
+        });
+      
+        y = (doc as any).lastAutoTable.finalY + 20;
+      } else if (full.transport.transportType || full.transport.pickupLocation) {
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'bold');
+        doc.text('TRANSPORTATION', leftColumn + 5, y + 20);
+        y += 40;
         doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
         if (full.transport.transportType) {
-          doc.text(`Type: ${full.transport.transportType}`, 40, y);
-          y += 12;
+          doc.text(`Type: ${full.transport.transportType}`, leftColumn, y);
+          y += 15;
         }
         if (full.transport.pickupLocation) {
-          doc.text(`Pickup: ${full.transport.pickupLocation}`, 40, y);
-          y += 16;
+          doc.text(`Pickup Location: ${full.transport.pickupLocation}`, leftColumn, y);
+          y += 15;
         }
+        y += 10;
       }
 
-      // Costing table
+      // Costing Section
       if (full.pricing.table?.length) {
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'bold');
+        doc.text('COST BREAKDOWN', leftColumn + 5, y + 20);
+        y += 40;
+        
         autoTable(doc, {
           startY: y,
-          head: [['Service', 'Qty', 'Cost/Qty', 'Sale/Qty', 'Total Cost', 'Total Sale', 'Profit']],
+          head: [['Service/Item', 'Quantity', 'Unit Price', 'Total Amount']],
           body: full.pricing.table.map((r: any) => [
-            r.label,
+            r.label || '—',
             String(r.quantity ?? 0),
-            String(r.costPerQty ?? 0),
-            String(r.salePerQty ?? 0),
-            String(r.totalCost ?? 0),
-            String(r.totalSale ?? 0),
-            String(r.profit ?? 0),
+            `$${r.salePerQty ?? 0}`,
+            `$${r.totalSale ?? 0}`
           ]),
-          styles: { fontSize: 9 },
+          styles: { fontSize: 10 },
+          headStyles: { fillColor: [0, 105, 217], textColor: [255, 255, 255], fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 249, 250] },
         });
      
-        y = (doc as any).lastAutoTable.finalY + 12;
+        y = (doc as any).lastAutoTable.finalY + 20;
       }
+      
+      // Calculate totals - Use the normalized value from full.pricing.totals.totalSalePrice
+      const calculatedTotalSale = full.pricing.totals?.totalSalePrice || 
+                                   data?.amount || 
+                                   data?.totalAmount || 
+                                   full.pricing.table?.reduce((sum: number, item: any) => sum + (item.totalSale || 0), 0) || 
+                                   0;
+
+      // Page 1: Add footer at bottom if content fits, otherwise start page 2
+      const footerStartY = 750;
+      const footerHeight = 50;
+      
+      // Check if we need to move remaining content to page 2
+      if (y + 120 > footerStartY - 20) {
+        // Add footer to page 1
+        doc.setFillColor(0, 105, 217);
+        doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
+        doc.setTextColor(255, 255, 255);
       doc.setFontSize(10);
-      doc.text(
-        `Totals — Cost: ${full.pricing.totals.totalCostPrice} | Sale: ${full.pricing.totals.totalSalePrice} | Profit: ${full.pricing.totals.profit}`,
-        40,
-        y
-      );
-      y += 14;
+        doc.setFont(undefined, 'bold');
+        doc.text('Thank you for choosing MiQAT TRAVELS!', pageWidth / 2, footerStartY + 15, { align: 'center' });
+        doc.setFontSize(8);
+        doc.setFont(undefined, 'normal');
+        doc.text('For any inquiries, please contact your travel agent or visit our website.', pageWidth / 2, footerStartY + 30, { align: 'center' });
+        
+        // Start Page 2
+        doc.addPage();
+        
+        // Add header to page 2
+        doc.setFillColor(0, 105, 217);
+        doc.rect(0, 0, pageWidth, 80, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(24);
+        doc.setFont(undefined, 'bold');
+        doc.text('MiQAT TRAVELS', pageWidth / 2, 30, { align: 'center' });
+        doc.setFontSize(14);
+        doc.setFont(undefined, 'normal');
+        doc.text('Payment & Billing Details', pageWidth / 2, 48, { align: 'center' });
+        doc.setFontSize(10);
+        doc.text(`Booking ID: ${full.id}`, pageWidth / 2, 60, { align: 'center' });
+        doc.setTextColor(0, 0, 0);
+        
+        y = 100;
+      } else {
+        // Add footer to page 1
+        doc.setFillColor(0, 105, 217);
+        doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'bold');
+        doc.text('Thank you for choosing MiQAT TRAVELS!', pageWidth / 2, footerStartY + 15, { align: 'center' });
+        doc.setFontSize(8);
+        doc.setFont(undefined, 'normal');
+        doc.text('For any inquiries, please contact your travel agent or visit our website.', pageWidth / 2, footerStartY + 30, { align: 'center' });
+        
+        doc.save(`booking-full-${full.id}.pdf`);
+        return; // End PDF generation if content fits on one page
+      }
+
+      // Additional Services Section (Page 2)
       if (full.pricing.additionalServices) {
-        doc.text(`Additional Services: ${full.pricing.additionalServices}`, 40, y);
-        y += 14;
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'bold');
+        doc.text('Additional Services:', leftColumn + 5, y + 20);
+        y += 45;
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        doc.text(full.pricing.additionalServices, leftColumn, y);
+        y += 25;
       }
 
- 
+      // Payment Section (Page 2)
+      doc.setFillColor(240, 240, 240);
+      doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
       doc.setFontSize(12);
-      doc.text('Payment', 40, y);
-      y += 12;
+      doc.setFont(undefined, 'bold');
+      doc.text('PAYMENT INFORMATION', leftColumn + 5, y + 20);
+      y += 50;
       doc.setFontSize(10);
-      doc.text(`Method: ${full.payment.method || '—'}`, 40, y);
-      y += 12;
+      doc.setFont(undefined, 'normal');
+      doc.text(`Payment Method: ${full.payment.method || 'Not specified'}`, leftColumn, y);
+      y += 15;
+      if (full.payment.cardholderName) {
+        doc.text(`Cardholder: ${full.payment.cardholderName}`, leftColumn, y);
+        y += 15;
+      }
       if (full.payment.cardLast4) {
-        doc.text(`Card Last4: •••• ${full.payment.cardLast4}`, 40, y);
-        y += 12;
+        doc.text(`Card: •••• ${full.payment.cardLast4}`, leftColumn, y);
+        y += 25;
       }
+      y += 15;
 
+      // TOTAL AMOUNT Section (Page 2)
+      doc.setFillColor(52, 152, 219);
+      doc.rect(leftColumn, y, pageWidth - 80, 45, 'F');
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(255, 255, 255);
       doc.setFontSize(12);
-      doc.text('Passengers', 40, y);
-      y += 12;
+      doc.text('TOTAL AMOUNT', leftColumn + 5, y + 15);
+      doc.setFontSize(16);
+      doc.text(`$${calculatedTotalSale.toLocaleString()}`, pageWidth / 2, y + 28, { align: 'center' });
+      doc.setTextColor(0, 0, 0);
+      y += 60;
+
+      // Passenger Section (Page 2)
+      doc.setFillColor(240, 240, 240);
+      doc.rect(leftColumn, y, pageWidth - 80, 30, 'F');
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.text('PASSENGER INFORMATION', leftColumn + 5, y + 20);
+      y += 45;
       doc.setFontSize(10);
-      doc.text(
-        `Total: ${full.pax.passengers || '—'} | Adults: ${full.pax.adults || '—'} | Children: ${full.pax.children || '—'}`,
-        40,
-        y
-      );
+      doc.setFont(undefined, 'normal');
+      doc.text(`Total Passengers: ${full.pax.passengers || '—'}`, leftColumn, y);
+      y += 15;
+      doc.text(`Adults: ${full.pax.adults || '—'}`, leftColumn, y);
+      y += 15;
+      doc.text(`Children: ${full.pax.children || '—'}`, leftColumn, y);
+      y += 30;
+
+      // Footer on Page 2
+      doc.setFillColor(0, 105, 217);
+      doc.rect(0, footerStartY, pageWidth, footerHeight, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.text('Thank you for choosing MiQAT TRAVELS!', pageWidth / 2, footerStartY + 15, { align: 'center' });
+      doc.setFontSize(8);
+      doc.setFont(undefined, 'normal');
+      doc.text('For any inquiries, please contact your travel agent or visit our website.', pageWidth / 2, footerStartY + 30, { align: 'center' });
 
       doc.save(`booking-full-${full.id}.pdf`);
     } catch (e) {
@@ -980,7 +1186,7 @@ const Bookings: React.FC = () => {
                             {(booking as any).hotels.map((h: any, i: number) => (
                               <div key={i} className="border-b border-green-100 pb-1">
                                 <p>
-                                  <span className="font-medium">Hotel:</span> {h.hotelName || '—'} (
+                                  <span className="font-medium">Hotel:</span> {h.name || h.hotelName || '—'} (
                                   {h.roomType || '—'})
                                 </p>
                                 <p>

@@ -140,14 +140,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setUser(me);
       } else if (!hadCompany) {
         // last resort: keep minimal user from login payload
-        const u =
-          res.data.user ??
-          ({
-            id: res.data._id,
-            name: res.data.name,
-            email: res.data.email,
-            role: res.data.role,
-          } as User);
+        // Support both 'user' (admin login) and 'agent' (agent login) responses
+        const agentData = res.data.agent;
+        const u = res.data.user ?? (agentData ? {
+          id: agentData._id,
+          name: agentData.name,
+          email: agentData.email,
+          role: agentData.role,
+        } : {
+          id: res.data._id,
+          name: res.data.name,
+          email: res.data.email,
+          role: res.data.role,
+        } as User);
         localStorage.setItem("user", JSON.stringify(u));
         setUser(u);
       }
@@ -183,8 +188,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 };
 
-export const useAuth = () => {
+// Export hook as default to avoid HMR issues
+const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;
 };
+
+export { useAuth };

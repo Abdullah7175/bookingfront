@@ -133,6 +133,7 @@ const SaleAgents: React.FC = () => {
       email: agentData.email,
       password: agentData.password, // required for creation
       phone: agentData.phone,
+      username: agentData.username,
       monthlyTarget: Number(agentData.monthlyTarget) || 5000,
       commissionRate: Number(agentData.commissionRate) || 5.0,
       department: agentData.department || 'sales',
@@ -192,6 +193,7 @@ const SaleAgents: React.FC = () => {
       name: [agentData.firstName, agentData.lastName].filter(Boolean).join(' '),
       email: agentData.email,
       phone: agentData.phone,
+      username: agentData.username,
       monthlyTarget: Number(agentData.monthlyTarget) || 5000,
       commissionRate: Number(agentData.commissionRate) || 5.0,
       department: agentData.department || 'sales',

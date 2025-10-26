@@ -20,7 +20,7 @@ interface SidebarProps {
   setActiveSection: (section: string) => void;
   isSidebarOpen: boolean;
   setIsSidebarOpen: (open: boolean) => void;
-  user: User;
+  user: User | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({

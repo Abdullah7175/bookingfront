@@ -45,6 +45,9 @@ const mapAgent = (a: any): Agent => ({
   phone: a?.phone || '',
   totalBookings: Number(a?.totalBookings ?? 0) || 0,
   totalRevenue: Number(a?.totalRevenue ?? 0) || 0,
+  monthlyTarget: Number(a?.monthlyTarget ?? 0) || 0,
+  joinDate: a?.joinDate || a?.createdAt || '',
+  status: a?.status || 'active',
   recentBookings: Array.isArray(a?.recentBookings) ? a.recentBookings : [],
 });
 
@@ -404,10 +407,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 
-export const useData = () => {
+// Export hook to avoid HMR issues
+const useData = () => {
   const context = useContext(DataContext);
   if (context === undefined) {
     throw new Error('useData must be used within a DataProvider');
   }
   return context;
 };
+
+export { useData };
