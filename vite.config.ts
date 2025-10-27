@@ -7,13 +7,18 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  // Prevent Vite from reading files outside the project
   server: {
+    fs: {
+      strict: true,
+      deny: ['.git'],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:7000',
         changeOrigin: true,
       },
     },
-   allowedHosts: ['miqattravels.com','https://miqattravels.com','www.miqattravels.com'],
+    allowedHosts: ['miqattravels.com','https://miqattravels.com','www.miqattravels.com'],
   },
 });
