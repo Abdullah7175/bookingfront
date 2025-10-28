@@ -33,8 +33,15 @@ const AdminDashboard: React.FC = () => {
   const totalRevenue = bookings
     .filter(b => b.status === 'confirmed')
     .reduce((sum, b) => {
-      if (!b.amount || typeof b.amount !== 'string') return sum;
-      const amount = parseFloat(b.amount.replace(/[$,]/g, '')) || 0;
+      // Try to get amount from various sources, prioritizing calculated totals
+      let amount = 0;
+      
+      if (typeof b.amount === 'number') {
+        amount = b.amount;
+      } else if (typeof b.amount === 'string') {
+        amount = parseFloat(b.amount.replace(/[$,]/g, '')) || 0;
+      }
+      
       return sum + amount;
     }, 0);
 

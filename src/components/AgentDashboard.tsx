@@ -8,13 +8,29 @@ import { Calendar, MessageSquare, TrendingUp, Clock } from 'lucide-react';
 const toId = (v: any): string | undefined =>
   (v && typeof v === 'object' && v._id) || (typeof v === 'string' ? v : undefined);
 
-/** coerce various amount shapes to a number */
-const toAmount = (v: any): number => {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'string') {
-    const n = Number(v.replace(/[^\d.-]/g, ''));
+/** coerce various amount shapes to a number, prioritizing calculated totals */
+const toAmount = (booking: any): number => {
+  // First, try to get from the booking's amount field (already mapped correctly in Bookings.tsx)
+  if (booking && typeof booking.amount === 'number') {
+    return booking.amount;
+  }
+  
+  // Fallback: try string amount
+  if (booking && typeof booking.amount === 'string') {
+    const n = Number(booking.amount.replace(/[^\d.-]/g, ''));
     return Number.isFinite(n) ? n : 0;
   }
+  
+  // Fallback: try totalAmount
+  if (booking && typeof booking.totalAmount === 'number') {
+    return booking.totalAmount;
+  }
+  
+  if (booking && typeof booking.totalAmount === 'string') {
+    const n = Number(booking.totalAmount.replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  }
+  
   return 0;
 };
 
@@ -54,7 +70,7 @@ const AgentDashboard: React.FC = () => {
 
   // Totals
   const agentRevenue = agentBookings.reduce((sum: number, b: any) => {
-    const amount = toAmount(b.totalAmount ?? b.amount);
+    const amount = toAmount(b);
     return sum + amount;
   }, 0);
 
@@ -101,7 +117,7 @@ const AgentDashboard: React.FC = () => {
               const customer = booking.customerName || booking.customer;
               const pkg = booking.package || booking.packageName;
               const when = fmtDate(booking.departureDate || booking.date || booking.createdAt);
-              const amount = currency(toAmount(booking.totalAmount ?? booking.amount));
+              const amount = currency(toAmount(booking));
               const status = String(booking.status || 'pending').toLowerCase();
 
               return (

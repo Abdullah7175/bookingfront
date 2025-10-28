@@ -98,6 +98,16 @@ export interface BookingFormData {
   paymentMethod: 'credit_card' | 'bank_transfer' | 'cash' | 'installments';
   costingRows?: CostingRow[];
 
+  // Payment Tracking
+  paymentReceivedAmount?: string;
+  paymentReceivedMethod?: 'credit_card' | 'zelle' | 'wire_transfer' | 'cash' | 'check';
+  paymentReceivedDate?: string;
+  paymentReceivedReference?: string;
+  paymentDueAmount?: string;
+  paymentDueMethod?: 'credit_card' | 'zelle' | 'wire_transfer' | 'cash' | 'check';
+  paymentDueDate?: string;
+  paymentDueNotes?: string;
+
   // Backend required additions
   package?: string;
   date?: string; // booking date
@@ -245,6 +255,8 @@ function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null
     const cpq = toNum(r.costPerQty);
     const spq = toNum(r.salePerQty);
     return {
+      // Use both 'label' and 'item' for compatibility
+      item: (r.label || '').trim(),
       label: (r.label || '').trim(),
       quantity: qty,
       costPerQty: cpq,
@@ -288,6 +300,15 @@ function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null
         profit: sumProfit,
       },
     },
+    // Also save to 'costing' field for backend compatibility
+    costing: {
+      rows: costingRows,
+      totals: {
+        totalCost: sumCost,
+        totalSale: sumSale,
+        profit: sumProfit,
+      },
+    },
     // legacy mirrors
     packagePrice: packagePriceNum,
     additionalServices: formData.additionalServices || '',
@@ -300,7 +321,7 @@ function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null
     departureDate: isoOrNull(formData.departureDate) || '',
     returnDate: isoOrNull(formData.returnDate) || '',
 
-    // FLIGHT
+    // FLIGHT - save to both 'flight' and 'flights' for compatibility
     flight: {
       itinerary: formData.flightsItinerary || '',
       departureCity: formData.departureCity || '',
@@ -310,6 +331,11 @@ function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null
       flightClass: formData.flightClass || 'economy',
       pnr: (formData.pnr || '').toUpperCase(),
     },
+    flights: {
+      raw: formData.flightsItinerary || '',
+      itineraryLines: (formData.flightsItinerary || '').split('\n').filter(Boolean),
+    },
+    pnr: (formData.pnr || '').toUpperCase(),
     departureCity: formData.departureCity || '',
     arrivalCity: formData.arrivalCity || '',
     flightClass: formData.flightClass || 'economy',
@@ -330,16 +356,28 @@ function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null
       checkOut: isoOrNull(formData.checkOut) || '',
     },
 
-    // VISAS
-    visas: (formData.visas ?? []).map((v) => ({
-      name: v.name || '',
-      nationality: v.nationality || '',
-      visaType: v.visaType || 'tourist',
-    })),
-    visaType: formData.visaType || 'umrah',
+    // VISAS - save in the structure expected by database
+    visas: {
+      count: (formData.visas ?? []).length,
+      passengers: (formData.visas ?? []).map((v) => ({
+        fullName: v.name || '',
+        name: v.name || '', // Keep both for compatibility
+        nationality: v.nationality || '',
+        // Capitalize visaType to match enum: "Tourist" or "Umrah"
+        visaType: v.visaType ? v.visaType.charAt(0).toUpperCase() + v.visaType.slice(1).toLowerCase() : 'Tourist',
+      })),
+    },
+    // Legacy single visa field
+    visa: {
+      // Capitalize visaType to match enum
+      visaType: formData.visaType ? formData.visaType.charAt(0).toUpperCase() + formData.visaType.slice(1).toLowerCase() : 'Umrah',
+      nationality: formData.nationality || '',
+      passportNumber: formData.passportNumber || '',
+    },
+    visaType: formData.visaType ? formData.visaType.charAt(0).toUpperCase() + formData.visaType.slice(1).toLowerCase() : 'Umrah',
     nationality: formData.nationality || '',
 
-    // TRANSPORT
+    // TRANSPORT - save to both fields for compatibility
     transport: {
       legs: (formData.legs ?? []).map((l) => ({
         from: l.from || '',
@@ -350,6 +388,16 @@ function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null
       })),
       transportType: formData.transportType || 'bus',
       pickupLocation: formData.pickupLocation || '',
+    },
+    transportation: {
+      count: (formData.legs ?? []).length,
+      legs: (formData.legs ?? []).map((l) => ({
+        from: l.from || '',
+        to: l.to || '',
+        vehicleType: l.vehicleType || 'Sedan',
+        date: isoOrNull(l.date) || '',
+        time: l.time || '',
+      })),
     },
 
     // PAYMENT (masked)
@@ -364,6 +412,20 @@ function buildBookingPayload(formData: BookingFormData, user: MinimalUser | null
     expiryDate: formData.expiryDate || '',
     cvv: formData.cvv || '',
     cardholderName: formData.cardholderName || '',
+
+    // PAYMENT TRACKING
+    paymentReceived: formData.paymentReceivedAmount ? {
+      amount: toNum(formData.paymentReceivedAmount),
+      method: formData.paymentReceivedMethod || 'credit_card',
+      date: isoOrNull(formData.paymentReceivedDate) || undefined,
+      reference: formData.paymentReceivedReference || undefined,
+    } : undefined,
+    paymentDue: formData.paymentDueAmount ? {
+      amount: toNum(formData.paymentDueAmount),
+      method: formData.paymentDueMethod || 'credit_card',
+      dueDate: isoOrNull(formData.paymentDueDate) || undefined,
+      notes: formData.paymentDueNotes || undefined,
+    } : undefined,
 
     // STATUS
     status: 'pending',
@@ -420,6 +482,7 @@ const BookingModal: React.FC<BookingModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [agents, setAgents] = useState<any[]>([]);
 
   // multi-create support
   const [bookings, setBookings] = useState<BookingFormData[]>([]);
@@ -450,46 +513,92 @@ const BookingModal: React.FC<BookingModalProps> = ({
   const [formData, setFormData] = useState<BookingFormData>(empty);
   const step = steps[currentStep];
 
-  // Initial open — create first booking
+  // Fetch agents when modal opens
   useEffect(() => {
-    if (isOpen && bookings.length === 0) {
-      setBookings([empty]);
-      setFormData(empty);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, bookings.length]);
+    if (!isOpen) return;
+    
+    const fetchAgents = async () => {
+      try {
+        const { data } = await http.get('/api/agent');
+        setAgents(data || []);
+      } catch (error) {
+        console.error('Failed to fetch agents:', error);
+        setAgents([]);
+      }
+    };
+    
+    fetchAgents();
+  }, [isOpen]);
 
-  // EDIT MODE: hydrate from initialData when opened
+  // Initial open — create first booking OR load edit data
   useEffect(() => {
-    if (isOpen && initialData) {
+    if (!isOpen) return;
+
+    // EDIT MODE: Load existing booking data
+    if (initialData && Object.keys(initialData).length > 0) {
+      console.log('BookingModal initialData:', initialData); // Debug log
+      
       // Ensure all string fields are properly initialized to avoid controlled/uncontrolled warnings
       const sanitizedInitialData = {
         ...initialData,
-        // Ensure all string fields are strings, not undefined
+        // Contact fields
         name: initialData.name || '',
         email: initialData.email || '',
         contactNumber: initialData.contactNumber || '',
         passengers: initialData.passengers || '',
         adults: initialData.adults || '',
         children: initialData.children || '',
+        agent: initialData.agent || '',
+        
+        // Credit card fields
+        cardNumber: initialData.cardNumber || '',
+        expiryDate: initialData.expiryDate || '',
+        cvv: initialData.cvv || '',
+        cardholderName: initialData.cardholderName || '',
+        
+        // Flight fields
         departureCity: initialData.departureCity || '',
         arrivalCity: initialData.arrivalCity || '',
         departureDate: initialData.departureDate || '',
         returnDate: initialData.returnDate || '',
         pnr: initialData.pnr || '',
         flightsItinerary: initialData.flightsItinerary || '',
+        flightClass: initialData.flightClass || 'economy',
+        
+        // Hotel fields
         hotelName: initialData.hotelName || '',
         roomType: initialData.roomType || '',
         checkIn: initialData.checkIn || '',
         checkOut: initialData.checkOut || '',
+        
+        // Visa fields
         visaType: initialData.visaType || 'umrah',
         passportNumber: initialData.passportNumber || '',
         nationality: initialData.nationality || '',
+        visasCount: initialData.visasCount || 0,
+        
+        // Transport fields
         transportType: initialData.transportType || 'bus',
         pickupLocation: initialData.pickupLocation || '',
+        legsCount: initialData.legsCount || 0,
+        
+        // Costing fields
         packagePrice: initialData.packagePrice || '',
         additionalServices: initialData.additionalServices || '',
         totalAmount: initialData.totalAmount || '',
+        paymentMethod: initialData.paymentMethod || 'credit_card',
+        
+        // Payment tracking fields
+        paymentReceivedAmount: initialData.paymentReceivedAmount || '',
+        paymentReceivedMethod: initialData.paymentReceivedMethod || 'credit_card',
+        paymentReceivedDate: initialData.paymentReceivedDate || '',
+        paymentReceivedReference: initialData.paymentReceivedReference || '',
+        paymentDueAmount: initialData.paymentDueAmount || '',
+        paymentDueMethod: initialData.paymentDueMethod || 'credit_card',
+        paymentDueDate: initialData.paymentDueDate || '',
+        paymentDueNotes: initialData.paymentDueNotes || '',
+        
+        // Package & date
         package: initialData.package || '',
         date: initialData.date || '',
       };
@@ -498,14 +607,22 @@ const BookingModal: React.FC<BookingModalProps> = ({
         ...empty,
         ...sanitizedInitialData,
         hotels: initialData.hotels && initialData.hotels.length > 0 ? initialData.hotels : emptyHotels,
-        visas: initialData.visas ?? emptyVisas,
-        legs: initialData.legs ?? emptyLegs,
+        visas: initialData.visas && initialData.visas.length > 0 ? initialData.visas : emptyVisas,
+        legs: initialData.legs && initialData.legs.length > 0 ? initialData.legs : emptyLegs,
         costingRows: initialData.costingRows && initialData.costingRows.length > 0 ? initialData.costingRows : starterCosting,
       } as BookingFormData;
+      
+      console.log('BookingModal merged formData:', merged); // Debug log
       
       setBookings([merged]);
       setFormData(merged);
       setCurrentBookingIndex(0);
+    } else {
+      // NEW BOOKING MODE: Create empty booking
+      if (bookings.length === 0) {
+        setBookings([empty]);
+        setFormData(empty);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialData]);
@@ -906,9 +1023,11 @@ const BookingModal: React.FC<BookingModalProps> = ({
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="">Use logged-in agent</option>
-                    <option value="ali">Ali Rahman</option>
-                    <option value="sara">Sara Khan</option>
-                    <option value="ahmed">Ahmed Malik</option>
+                    {agents.map((agent) => (
+                      <option key={agent._id || agent.id} value={agent._id || agent.id}>
+                        {agent.name} ({agent.email})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1557,6 +1676,114 @@ const BookingModal: React.FC<BookingModalProps> = ({
                     <option value="cash">Cash</option>
                     <option value="installments">Installments</option>
                   </select>
+                </div>
+
+                {/* Payment Received Section */}
+                <div className="mt-6 p-4 border-2 border-green-200 rounded-lg bg-green-50">
+                  <h4 className="text-md font-semibold text-gray-900 mb-4">Payment Received</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                      <input
+                        type="number"
+                        name="paymentReceivedAmount"
+                        value={formData.paymentReceivedAmount || ''}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Method</label>
+                      <select
+                        name="paymentReceivedMethod"
+                        value={formData.paymentReceivedMethod || 'credit_card'}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      >
+                        <option value="credit_card">Credit Card</option>
+                        <option value="zelle">Zelle</option>
+                        <option value="wire_transfer">Wire Transfer</option>
+                        <option value="cash">Cash</option>
+                        <option value="check">Check</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                      <input
+                        type="date"
+                        name="paymentReceivedDate"
+                        value={formData.paymentReceivedDate || ''}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Reference</label>
+                      <input
+                        type="text"
+                        name="paymentReceivedReference"
+                        value={formData.paymentReceivedReference || ''}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        placeholder="Transaction ref or check #"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment Due Section */}
+                <div className="mt-4 p-4 border-2 border-orange-200 rounded-lg bg-orange-50">
+                  <h4 className="text-md font-semibold text-gray-900 mb-4">Payment Due</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                      <input
+                        type="number"
+                        name="paymentDueAmount"
+                        value={formData.paymentDueAmount || ''}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Method</label>
+                      <select
+                        name="paymentDueMethod"
+                        value={formData.paymentDueMethod || 'credit_card'}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      >
+                        <option value="credit_card">Credit Card</option>
+                        <option value="zelle">Zelle</option>
+                        <option value="wire_transfer">Wire Transfer</option>
+                        <option value="cash">Cash</option>
+                        <option value="check">Check</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Due Date</label>
+                      <input
+                        type="date"
+                        name="paymentDueDate"
+                        value={formData.paymentDueDate || ''}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                      <input
+                        type="text"
+                        name="paymentDueNotes"
+                        value={formData.paymentDueNotes || ''}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        placeholder="Payment terms..."
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
