@@ -669,7 +669,7 @@ const Bookings: React.FC = () => {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
         doc.text('info@miqattravels.com', margin, footerY + 28);
-        doc.text('+1 (555) 123-4567', margin, footerY + 40);
+        doc.text('+92 (316) 503-2128', margin, footerY + 40);
         
         // Website and support
         doc.text('www.miqattravels.com', pageWidth / 2, footerY + 28, { align: 'center' });
@@ -744,6 +744,52 @@ const Bookings: React.FC = () => {
       doc.setTextColor(0, 0, 0);
       y += 75;
 
+      // PROFIT SUMMARY (For Internal Use)
+      const costingTotals = data?.costing?.totals || data?.pricing?.totals || {};
+      const totalCost = costingTotals.totalCostPrice || costingTotals.totalCost || 0;
+      const totalSale = costingTotals.totalSalePrice || costingTotals.totalSale || 0;
+      const profit = costingTotals.profit || (totalSale - totalCost) || 0;
+      
+      if (totalCost || totalSale || profit) {
+        checkPageBreak(80);
+        doc.setFillColor(240, 249, 255); // Light blue background
+        doc.roundedRect(margin, y, contentWidth, 70, 5, 5, 'F');
+        doc.setDrawColor(30, 58, 138);
+        doc.setLineWidth(1.5);
+        doc.roundedRect(margin, y, contentWidth, 70, 5, 5, 'S');
+        
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 64, 175); // Blue color
+        doc.text('INTERNAL USE - PROFIT SUMMARY', margin + 15, y + 18);
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(0, 0, 0);
+        
+        const profitLabelX = margin + 15;
+        const profitValueX = margin + 120;
+        
+        doc.setFont('helvetica', 'bold');
+        doc.text('Total Cost:', profitLabelX, y + 38);
+        doc.setFont('helvetica', 'normal');
+        doc.text(formatCurrency(totalCost), profitValueX, y + 38);
+        
+        doc.setFont('helvetica', 'bold');
+        doc.text('Total Sale:', profitLabelX + 200, y + 38);
+        doc.setFont('helvetica', 'normal');
+        doc.text(formatCurrency(totalSale), profitValueX + 200, y + 38);
+        
+        doc.setFont('helvetica', 'bold');
+        doc.text('Profit:', profitLabelX, y + 55);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(22, 163, 74); // Green for profit
+        doc.text(formatCurrency(profit), profitValueX, y + 55);
+        
+        doc.setTextColor(0, 0, 0);
+        y += 85;
+      }
+
       // CUSTOMER INFORMATION
       y = drawSectionHeader('TRAVELER INFORMATION', y);
       doc.setFontSize(10);
@@ -810,7 +856,7 @@ const Bookings: React.FC = () => {
         doc.setFontSize(14);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-        doc.text(full.flight.route.replace('✈', '→'), margin + 25, y + 23);
+        doc.text(full.flight.route.replace('✈', 'to').replace('→', 'to'), margin + 25, y + 23);
         doc.setTextColor(0, 0, 0);
         y += 45;
       }
