@@ -761,7 +761,7 @@ const Bookings: React.FC = () => {
         doc.setFontSize(11);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(30, 64, 175); // Blue color
-        doc.text('INTERNAL USE - PROFIT SUMMARY', margin + 15, y + 18);
+        doc.text('PROFIT SUMMARY', margin + 15, y + 18);
         
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
