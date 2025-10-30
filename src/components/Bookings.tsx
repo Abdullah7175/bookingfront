@@ -1241,12 +1241,35 @@ const Bookings: React.FC = () => {
       doc.setFont('helvetica', 'normal');
       doc.text('15636 71st Ave', margin, y + 35);
       doc.text('Flushing, NY 11367', margin, y + 50);
-      
+
       // Contact Information (to the right of address)
       const contactX = 250;
       doc.text('accounts@marwahtravelsumrah.com', contactX, y + 35);
       doc.text('+1 (646) 699-9732', contactX, y + 50);
       doc.text('www.mtumrah.com', contactX, y + 65);
+
+      // Logo (Top Right) - Add logo2.png
+      try {
+        const logoUrl = '/logo2.png';
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = logoUrl;
+        });
+        
+        // Add logo image (positioned at top right)
+        const logoWidth = 120;
+        const logoHeight = 40;
+        const logoX = pageWidth - margin - logoWidth; // Right align
+        const logoY = y; // Top align
+        doc.addImage(img, 'PNG', logoX, logoY, logoWidth, logoHeight);
+      } catch (logoError) {
+        console.log('Could not load logo2.png for invoice:', logoError);
+        // Continue without logo if loading fails
+      }
       
       y += 80;
 
