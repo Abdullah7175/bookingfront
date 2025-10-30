@@ -145,7 +145,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ---- Fetch inquiries ----
   const fetchInquiries = React.useCallback(async () => {
     try {
-      const { data } = await http.get('/api/inquiries');
+      // If VITE_INQUIRIES_API_BASE is set, fetch from the external portal; otherwise use our backend
+      const externalBase = (import.meta as any).env?.VITE_INQUIRIES_API_BASE as string | undefined;
+      const externalUrl = externalBase ? `${externalBase.replace(/\/$/, '')}/inquiries` : undefined;
+
+      const { data } = await http.get(externalUrl || '/api/inquiries');
       const raw = Array.isArray(data) ? data : data?.data || data?.inquiries || [];
 
       const mapped: Inquiry[] = (raw as any[]).map((i) => {
