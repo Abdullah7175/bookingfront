@@ -1224,41 +1224,56 @@ const Bookings: React.FC = () => {
 
       // ============= HEADER SECTION =============
       
-      // Invoice Title (Top Left) - Blue color
+      // Try to load and add logo
+      try {
+        const logoUrl = '/logo2.png';
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = logoUrl;
+        });
+        
+        // Add logo image (max 40x40pt)
+        doc.addImage(img, 'PNG', margin, y, 40, 40);
+      } catch (logoError) {
+        console.log('Could not load logo:', logoError);
+        // Continue without logo
+      }
+      
+      // Invoice Title (Top Right, next to logo or standalone) - Blue color
       doc.setTextColor(30, 58, 138); // Blue color
       doc.setFontSize(24);
       doc.setFont('helvetica', 'bold');
-      doc.text('INVOICE', margin, y);
+      doc.text('INVOICE', margin + 50, y + 15);
       
-      // Company Name
+      // Company Name (below logo or shifted for logo)
       doc.setTextColor(0, 0, 0);
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text('MARWAH TRAVELS UMRAH', margin, y + 20);
+      doc.text('MARWAH TRAVELS UMRAH', margin + 50, y + 35);
       
       // Company Address
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.text('15636 71st Ave', margin, y + 35);
-      doc.text('Flushing, NY 11367', margin, y + 50);
+      doc.text('15636 71st Ave', margin + 50, y + 50);
+      doc.text('Flushing, NY 11367', margin + 50, y + 65);
       
       // Contact Information (to the right of address)
-      const contactX = 250;
+      const contactX = 300;
       doc.text('accounts@marwahtravelsumrah.com', contactX, y + 35);
       doc.text('+1 (646) 699-9732', contactX, y + 50);
       doc.text('www.mtumrah.com', contactX, y + 65);
       
-      // Logo (Top Right) - We'll try to add logo if possible
-      // For now, just add company name with logo-style text
+      // Additional logo/branding area (Top Right)
       const logoX = pageWidth - margin - 120;
-      doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
-      doc.text('MARWAH', logoX, y + 15);
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.text('TRAVELS UMRAH', logoX, y + 30);
+      doc.text('Booking Management', logoX, y + 60);
       
-      y += 80;
+      y += 90;
 
       // ============= BILL TO / SHIP TO SECTION =============
       

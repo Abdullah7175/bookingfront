@@ -70,7 +70,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <img src="/logo2.png" alt="Marwah Travels Umrah" className="w-full h-full object-contain" />
           </div>
           <div>
-            <h1 className="text-white font-semibold text-lg">MARWAH TRAVELS</h1>
+            {/* <h1 className="text-white font-semibold text-lg">MARWAH TRAVELS</h1> */}
             {/* <p className="text-slate-400 text-sm">UMRAH</p> */}
           </div>
         </div>
