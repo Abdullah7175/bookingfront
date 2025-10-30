@@ -1250,7 +1250,7 @@ const Bookings: React.FC = () => {
 
       // Logo (Top Right) - Add logo2.png
       try {
-        const logoUrl = '/logo2.png';
+        const logoUrl = '/logo.png';
         const img = new Image();
         img.crossOrigin = 'anonymous';
         
