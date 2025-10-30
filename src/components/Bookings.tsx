@@ -1224,56 +1224,31 @@ const Bookings: React.FC = () => {
 
       // ============= HEADER SECTION =============
       
-      // Try to load and add logo
-      try {
-        const logoUrl = '/logo2.png';
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
-          img.src = logoUrl;
-        });
-        
-        // Add logo image (max 40x40pt)
-        doc.addImage(img, 'PNG', margin, y, 40, 40);
-      } catch (logoError) {
-        console.log('Could not load logo:', logoError);
-        // Continue without logo
-      }
-      
-      // Invoice Title (Top Right, next to logo or standalone) - Blue color
+      // Invoice Title (Top Left) - Blue color
       doc.setTextColor(30, 58, 138); // Blue color
       doc.setFontSize(24);
       doc.setFont('helvetica', 'bold');
-      doc.text('INVOICE', margin + 50, y + 15);
+      doc.text('INVOICE', margin, y);
       
-      // Company Name (below logo or shifted for logo)
+      // Company Name
       doc.setTextColor(0, 0, 0);
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text('MARWAH TRAVELS UMRAH', margin + 50, y + 35);
+      doc.text('MARWAH TRAVELS UMRAH', margin, y + 20);
       
       // Company Address
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.text('15636 71st Ave', margin + 50, y + 50);
-      doc.text('Flushing, NY 11367', margin + 50, y + 65);
+      doc.text('15636 71st Ave', margin, y + 35);
+      doc.text('Flushing, NY 11367', margin, y + 50);
       
       // Contact Information (to the right of address)
-      const contactX = 300;
+      const contactX = 250;
       doc.text('accounts@marwahtravelsumrah.com', contactX, y + 35);
       doc.text('+1 (646) 699-9732', contactX, y + 50);
       doc.text('www.mtumrah.com', contactX, y + 65);
       
-      // Additional logo/branding area (Top Right)
-      const logoX = pageWidth - margin - 120;
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Booking Management', logoX, y + 60);
-      
-      y += 90;
+      y += 80;
 
       // ============= BILL TO / SHIP TO SECTION =============
       
@@ -1297,13 +1272,10 @@ const Bookings: React.FC = () => {
       
       y += 60;
 
-      // Dotted line separator
+      // Dotted line separator (draw a regular line since dash() is not available in jsPDF)
       doc.setDrawColor(200, 200, 200);
       doc.setLineWidth(0.5);
-      const dashPattern = [3, 3];
-      doc.dash(dashPattern, 0);
       doc.line(margin, y, pageWidth - margin, y);
-      doc.dash(); // reset dash
       
       y += 15;
 
