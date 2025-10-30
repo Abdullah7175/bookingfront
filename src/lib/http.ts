@@ -6,7 +6,7 @@ const API_BASE =
 import.meta.env.VITE_API_BASE || 
 (typeof window !== "undefined" 
   ? `${window.location.protocol}//${window.location.hostname}`
-  : "http://localhost:7000");
+  : "https://localhost:7000");
 
 const isDev = import.meta.env.DEV === true;
 

@@ -629,9 +629,9 @@ const Bookings: React.FC = () => {
         
         // Company name
         doc.setTextColor(255, 255, 255);
-        doc.setFontSize(32);
+        doc.setFontSize(24);
         doc.setFont('helvetica', 'bold');
-        doc.text('MIQAT TRAVELS', margin, 50);
+        doc.text('MARWAH TRAVELS UMRAH', margin, 50);
         
         // Tagline
         doc.setFontSize(10);
@@ -665,15 +665,15 @@ const Bookings: React.FC = () => {
         doc.setFontSize(9);
         doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
         doc.setFont('helvetica', 'bold');
-        doc.text('MIQAT TRAVELS', margin, footerY + 15);
+        doc.text('MARWAH TRAVELS UMRAH', margin, footerY + 15);
         
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.text('info@miqattravels.com', margin, footerY + 28);
+        doc.text('info@marwahtravels.com', margin, footerY + 28);
         doc.text('+92 (316) 503-2128', margin, footerY + 40);
         
         // Website and support
-        doc.text('www.miqattravels.com', pageWidth / 2, footerY + 28, { align: 'center' });
+        doc.text('www.marwahtravels.com', pageWidth / 2, footerY + 28, { align: 'center' });
         doc.text('24/7 Customer Support', pageWidth / 2, footerY + 40, { align: 'center' });
         
         // License info
@@ -1171,7 +1171,7 @@ const Bookings: React.FC = () => {
       // Add footer
       addFooter();
 
-      doc.save(`MIQAT-Booking-${full.id}.pdf`);
+      doc.save(`MARWAH-Booking-${full.id}.pdf`);
     } catch (e) {
       console.error('Full PDF failed', e);
       alert('Failed to generate full PDF');

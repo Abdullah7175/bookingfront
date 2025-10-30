@@ -59,15 +59,15 @@ const AuthScreen: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-black to-blue-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo/Brand */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-2xl">U</span>
+          <div className="rounded-2xl p-4 flex items-center justify-center mx-auto mb-4 w-42 h-42">
+            <img src="/logo2.png" alt="Marwah Travels Umrah" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Umrah Booking</h1>
-          <p className="text-gray-600">Management System</p>
+          {/* <h1 className="text-2xl sm:text-4xl font-bold text-white mb-2">MARWAH TRAVELS UMRAH</h1> */}
+          {/* <p className="text-gray-600">Management System</p> */}
         </div>
 
         {/* Auth Form */}
