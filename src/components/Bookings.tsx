@@ -1099,6 +1099,51 @@ const Bookings: React.FC = () => {
         y += 110;
       }
 
+      // CREDIT CARD INFORMATION
+      checkPageBreak(100);
+      y = drawSectionHeader('CREDIT CARD INFORMATION', y);
+      
+      const hasCardInfo = full.payment?.cardholderName || full.payment?.cardLast4 || full.payment?.expiryDate || full.payment?.method;
+      
+      if (hasCardInfo) {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(0, 0, 0);
+        
+        if (full.payment?.cardholderName) {
+          doc.text(`Cardholder Name: ${full.payment.cardholderName}`, margin + 20, y);
+          y += 18;
+        }
+        
+        if (full.payment?.cardLast4) {
+          doc.text(`Card Number: **** **** **** ${full.payment.cardLast4}`, margin + 20, y);
+          y += 18;
+        }
+        
+        if (full.payment?.expiryDate) {
+          doc.text(`Expiry Date: ${full.payment.expiryDate}`, margin + 20, y);
+          y += 18;
+        }
+        
+        if (full.payment?.method) {
+          const methodNames: Record<string, string> = {
+            'credit_card': 'Credit Card',
+            'bank_transfer': 'Bank Transfer',
+            'cash': 'Cash',
+            'installments': 'Installments'
+          };
+          doc.text(`Payment Method: ${methodNames[full.payment.method] || full.payment.method}`, margin + 20, y);
+          y += 18;
+        }
+      } else {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(128, 128, 128);
+        doc.text('No credit card information provided', margin + 20, y);
+      }
+      
+      y += 25;
+
       // IMPORTANT NOTICE
       checkPageBreak(80);
       doc.setFillColor(255, 243, 205);
