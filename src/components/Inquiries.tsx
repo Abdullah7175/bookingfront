@@ -180,9 +180,9 @@ const Inquiries: React.FC = () => {
   };
 
   const displayInquiries = useMemo(() => {
-    // For agents, only show inquiries they created
-    return isAdmin ? list : list.filter((i) => i.agentId === user?.id || i.agentId === user?.agentId);
-  }, [isAdmin, list, user]);
+    // Show all inquiries for both admin and agents to reflect external portal feed
+    return list;
+  }, [list]);
 
   const filteredInquiries = displayInquiries.filter((inquiry) => {
     const s = searchTerm.toLowerCase();
