@@ -329,24 +329,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (type === 'booking') {
         const { data } = await http.put(`/api/bookings/${id}/approve`);
         if (data.success) {
-          setBookings((prev) =>
-            prev.map((booking) =>
-              booking.id === id
-                ? { ...booking, approvalStatus: 'approved', status: 'confirmed' }
-                : booking
-            )
-          );
+          // Refresh bookings to get the latest data
+          await fetchBookings();
         }
       } else {
         const { data } = await http.put(`/api/inquiries/${id}/approve`);
         if (data.success) {
-          setInquiries((prev) =>
-            prev.map((inquiry) =>
-              inquiry.id === id
-                ? { ...inquiry, approvalStatus: 'approved', status: 'responded' }
-                : inquiry
-            )
-          );
+          // Refresh inquiries to get the latest data
+          await fetchInquiries();
         }
       }
     } catch (error) {
@@ -359,24 +349,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (type === 'booking') {
         const { data } = await http.put(`/api/bookings/${id}/reject`);
         if (data.success) {
-          setBookings((prev) =>
-            prev.map((booking) =>
-              booking.id === id
-                ? { ...booking, approvalStatus: 'rejected', status: 'cancelled' }
-                : booking
-            )
-          );
+          // Refresh bookings to get the latest data
+          await fetchBookings();
         }
       } else {
         const { data } = await http.put(`/api/inquiries/${id}/reject`);
         if (data.success) {
-          setInquiries((prev) =>
-            prev.map((inquiry) =>
-              inquiry.id === id
-                ? { ...inquiry, approvalStatus: 'rejected', status: 'closed' }
-                : inquiry
-            )
-          );
+          // Refresh inquiries to get the latest data
+          await fetchInquiries();
         }
       }
     } catch (error) {

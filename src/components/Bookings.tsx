@@ -191,6 +191,7 @@ function normalizeForPdf(b: any) {
 
     payment: {
       method: b?.flightPayments?.mode || b?.payment?.method || b?.paymentMethod || '',
+      cardNumber: b?.cardNumber || b?.payment?.cardNumber || '',
       cardLast4: b?.payment?.cardLast4 || b?.cardLast4 || '',
       cardholderName: b?.payment?.cardholderName || b?.cardholderName || '',
       expiryDate: b?.payment?.expiryDate || b?.expiryDate || '',
@@ -1103,7 +1104,7 @@ const Bookings: React.FC = () => {
       checkPageBreak(100);
       y = drawSectionHeader('CREDIT CARD INFORMATION', y);
       
-      const hasCardInfo = full.payment?.cardholderName || full.payment?.cardLast4 || full.payment?.expiryDate || full.payment?.method;
+      const hasCardInfo = full.payment?.cardNumber || data.cardNumber || full.payment?.cardholderName || full.payment?.cardLast4 || full.payment?.expiryDate || full.payment?.method;
       
       if (hasCardInfo) {
         doc.setFontSize(10);
@@ -1115,7 +1116,14 @@ const Bookings: React.FC = () => {
           y += 18;
         }
         
-        if (full.payment?.cardLast4) {
+        // Show full card number if available, otherwise show last 4
+        if (full.payment?.cardNumber) {
+          doc.text(`Card Number: ${full.payment.cardNumber}`, margin + 20, y);
+          y += 18;
+        } else if (data.cardNumber) {
+          doc.text(`Card Number: ${data.cardNumber}`, margin + 20, y);
+          y += 18;
+        } else if (full.payment?.cardLast4) {
           doc.text(`Card Number: **** **** **** ${full.payment.cardLast4}`, margin + 20, y);
           y += 18;
         }
