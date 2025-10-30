@@ -19,6 +19,7 @@ import {
   Download,
   Ticket,
   Settings, // for Status button icon
+  FileText, // for Invoice button icon
 } from 'lucide-react';
 
 /* =========================
@@ -629,7 +630,7 @@ const Bookings: React.FC = () => {
         
         // Company name
         doc.setTextColor(255, 255, 255);
-        doc.setFontSize(24);
+        doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
         doc.text('MARWAH TRAVELS UMRAH', margin, 50);
         
@@ -639,7 +640,7 @@ const Bookings: React.FC = () => {
         doc.text('Your Journey, Our Commitment', margin, 68);
         
         // Document title on right
-        doc.setFontSize(14);
+        doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.text('BOOKING CONFIRMATION', pageWidth - margin, 50, { align: 'right' });
         
@@ -1178,6 +1179,270 @@ const Bookings: React.FC = () => {
     }
   };
 
+  // NEW: Generate Invoice PDF matching the exact format from client's image
+  const generateInvoicePDF = async (bookingId: string) => {
+    try {
+      // Fetch the booking data
+      const { data } = await http.get(`/api/bookings/${bookingId}`);
+      
+      // Lazy import jsPDF
+      const jsPDFMod = await import('jspdf');
+      const jsPDF = (jsPDFMod as any).default || jsPDFMod;
+
+      const doc = new jsPDF({ 
+        unit: 'pt', 
+        format: 'letter',
+        compress: true 
+      });
+      
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 50;
+      
+      let y = margin;
+
+      // Helper: Format currency
+      const formatCurrency = (amount: number) => {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }).format(amount);
+      };
+
+      // Helper: Format date
+      const formatDate = (d?: string | null) => {
+        if (!d) return '';
+        try {
+          const date = new Date(d);
+          return date.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        } catch {
+          return d;
+        }
+      };
+
+      // ============= HEADER SECTION =============
+      
+      // Invoice Title (Top Left) - Blue color
+      doc.setTextColor(30, 58, 138); // Blue color
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text('INVOICE', margin, y);
+      
+      // Company Name
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MARWAH TRAVELS UMRAH', margin, y + 20);
+      
+      // Company Address
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('15636 71st Ave', margin, y + 35);
+      doc.text('Flushing, NY 11367', margin, y + 50);
+      
+      // Contact Information (to the right of address)
+      const contactX = 250;
+      doc.text('accounts@marwahtravelsumrah.com', contactX, y + 35);
+      doc.text('+1 (646) 699-9732', contactX, y + 50);
+      doc.text('www.mtumrah.com', contactX, y + 65);
+      
+      // Logo (Top Right) - We'll try to add logo if possible
+      // For now, just add company name with logo-style text
+      const logoX = pageWidth - margin - 120;
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MARWAH', logoX, y + 15);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('TRAVELS UMRAH', logoX, y + 30);
+      
+      y += 80;
+
+      // ============= BILL TO / SHIP TO SECTION =============
+      
+      // Light blue background
+      doc.setFillColor(173, 216, 230); // Light blue
+      doc.rect(margin, y, pageWidth - 2 * margin, 50, 'F');
+      
+      // Bill To
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Bill to', margin + 10, y + 15);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.customerName || '—', margin + 10, y + 30);
+      
+      // Ship To (to the right)
+      doc.setFont('helvetica', 'bold');
+      doc.text('Ship to', margin + 250, y + 15);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.customerName || '—', margin + 250, y + 30);
+      
+      y += 60;
+
+      // Dotted line separator
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.5);
+      const dashPattern = [3, 3];
+      doc.dash(dashPattern, 0);
+      doc.line(margin, y, pageWidth - margin, y);
+      doc.dash(); // reset dash
+      
+      y += 15;
+
+      // ============= INVOICE DETAILS SECTION =============
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Invoice details', margin, y);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      // Invoice Number (use booking ID)
+      const invoiceNo = data._id ? data._id.slice(-6).toUpperCase() : '000000';
+      doc.text(`Invoice no.: ${invoiceNo}`, margin, y + 20);
+      doc.text('Terms: Due on receipt', margin, y + 35);
+      
+      // Dates
+      const invoiceDate = formatDate(data.date || new Date().toISOString());
+      const dueDate = invoiceDate;
+      doc.text(`Invoice date: ${invoiceDate}`, margin, y + 50);
+      doc.text(`Due date: ${dueDate}`, margin, y + 65);
+      
+      y += 90;
+
+      // ============= LINE ITEMS TABLE =============
+      
+      // Table Headers
+      doc.setFillColor(70, 130, 180); // Steel blue for header
+      doc.rect(margin, y, pageWidth - 2 * margin, 25, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('#', margin + 10, y + 17);
+      doc.text('Date', margin + 35, y + 17);
+      doc.text('Product or service', margin + 100, y + 17);
+      doc.text('Description', margin + 200, y + 17);
+      doc.text('Qty', pageWidth - margin - 120, y + 17, { align: 'right' });
+      doc.text('Rate', pageWidth - margin - 80, y + 17, { align: 'right' });
+      doc.text('Amount', pageWidth - margin - 10, y + 17, { align: 'right' });
+      
+      y += 30;
+
+      // Table Data - Build from costing rows
+      const costingRows = data.costing?.rows || data.pricing?.table || [];
+      let rowNum = 1;
+      
+      for (const row of costingRows) {
+        if (y > pageHeight - 100) {
+          doc.addPage();
+          y = margin;
+        }
+        
+        // Alternate row colors
+        if (rowNum % 2 === 0) {
+          doc.setFillColor(245, 245, 245);
+          doc.rect(margin, y - 5, pageWidth - 2 * margin, 20, 'F');
+        }
+        
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        
+        const itemDate = formatDate(data.departureDate || data.date);
+        const qty = Number(row.quantity) || 0;
+        const rate = Number(row.salePerQty) || 0;
+        const amount = qty * rate;
+        
+        doc.text(`${rowNum}.`, margin + 10, y + 7);
+        doc.text(itemDate, margin + 35, y + 7);
+        
+        // Product or service (bold)
+        doc.setFont('helvetica', 'bold');
+        const productName = (row.label || row.item || '—').toUpperCase();
+        doc.text(productName, margin + 100, y + 7);
+        
+        // Description - use actual data if available, otherwise generate meaningful description
+        doc.setFont('helvetica', 'normal');
+        const description = productName.includes('ADULT') 
+          ? `${productName} ${qty} ADULTS` 
+          : productName.includes('INFANT') 
+          ? `${productName} ${qty} INFANT`
+          : `${productName} ${qty} ${qty === 1 ? 'unit' : 'units'}`;
+        doc.text(description, margin + 200, y + 7);
+        
+        // Quantity (right aligned)
+        doc.text(String(qty), pageWidth - margin - 120, y + 7, { align: 'right' });
+        
+        // Rate (right aligned)
+        doc.text(formatCurrency(rate), pageWidth - margin - 80, y + 7, { align: 'right' });
+        
+        // Amount (right aligned)
+        doc.text(formatCurrency(amount), pageWidth - margin - 10, y + 7, { align: 'right' });
+        
+        y += 25;
+        rowNum++;
+      }
+      
+      y += 10;
+
+      // ============= SUMMARY SECTION =============
+      
+      // Calculate totals
+      const totalAmount = costingRows.reduce((sum: number, r: any) => 
+        sum + ((Number(r.quantity) || 0) * (Number(r.salePerQty) || 0)), 0);
+      
+      const paymentReceived = data.paymentReceived?.amount || 0;
+      const balanceDue = totalAmount - paymentReceived;
+      
+      const summaryX = pageWidth - margin - 150;
+      
+      // Total
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Total:', summaryX, y);
+      doc.setFont('helvetica', 'bold');
+      doc.text(formatCurrency(totalAmount), summaryX + 110, y, { align: 'right' });
+      
+      y += 20;
+      
+      // Payment
+      if (paymentReceived > 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.text('Payment:', summaryX, y);
+        doc.text(formatCurrency(-paymentReceived), summaryX + 110, y, { align: 'right' });
+        y += 20;
+      }
+      
+      // Balance due
+      doc.setFont('helvetica', 'normal');
+      doc.text('Balance due:', summaryX, y);
+      doc.setFont('helvetica', 'bold');
+      doc.text(formatCurrency(balanceDue), summaryX + 110, y, { align: 'right' });
+      
+      y += 20;
+      
+      // Overdue (if applicable)
+      if (balanceDue > 0) {
+        doc.setTextColor(255, 165, 0); // Orange
+        doc.setFont('helvetica', 'bold');
+        doc.text('Overdue', summaryX, y);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'normal');
+        doc.text(dueDate, summaryX + 80, y);
+      }
+
+      // Save the PDF
+      doc.save(`MARWAH-Invoice-${invoiceNo}.pdf`);
+    } catch (e) {
+      console.error('Invoice generation failed', e);
+      alert('Failed to generate invoice PDF');
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'confirmed':
@@ -1633,8 +1898,18 @@ const Bookings: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    {/* 1) Server PDF (legacy/fallback) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                    {/* 1) Invoice PDF */}
+                    <button
+                      onClick={() => generateInvoicePDF(booking.id)}
+                      className="px-3 py-2 text-xs sm:text-sm font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
+                      title="Generate Invoice PDF"
+                    >
+                      <FileText className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="hidden sm:inline">Invoice</span>
+                    </button>
+
+                    {/* 2) Server PDF (legacy/fallback) */}
                     <button
                       onClick={() => handleDownloadPDF(booking.id)}
                       className="px-3 py-2 text-xs sm:text-sm font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
@@ -1643,41 +1918,41 @@ const Bookings: React.FC = () => {
                       <span>PDF</span>
                     </button>
 
-                    {/* 2) Full PDF (client, includes arrays/tables) */}
+                    {/* 3) Full PDF (client, includes arrays/tables) */}
                     <button
                       onClick={() => generateFullClientPDF(booking.id)}
                       className="px-3 py-2 text-xs sm:text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
                       title="Generate PDF with full itinerary, hotels[], visas[], legs, and costing"
                     >
                       <Download className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span>Full PDF</span>
+                      <span className="hidden sm:inline">Full PDF</span>
                     </button>
 
-                    {/* 3) Full Edit */}
+                    {/* 4) Full Edit */}
                     <button
                       onClick={() => handleOpenFullEdit(booking)}
                       className="px-3 py-2 text-xs sm:text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
                     >
                       <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span>Edit Full</span>
+                      <span className="hidden sm:inline">Edit</span>
                     </button>
 
-                    {/* 4) Status */}
+                    {/* 5) Status */}
                     <button
                       onClick={() => handleEditStatus(booking)}
                       className="px-3 py-2 text-xs sm:text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
                     >
                       <Settings className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span>Status</span>
+                      <span className="hidden sm:inline">Status</span>
                     </button>
 
-                    {/* 5) Delete */}
+                    {/* 6) Delete */}
                     <button
                       onClick={() => handleDelete(booking.id)}
                       className="px-3 py-2 text-xs sm:text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
                     >
                       <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span>Delete</span>
+                      <span className="hidden sm:inline">Delete</span>
                     </button>
                   </div>
 
