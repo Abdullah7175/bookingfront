@@ -24,6 +24,7 @@ const AdminDashboard: React.FC = () => {
   React.useEffect(() => {
     fetchBookings();
     fetchInquiries();
+    fetchAgents(); // Ensure agents are loaded
   }, []);
 
   // Get pending approvals
@@ -161,19 +162,30 @@ const AdminDashboard: React.FC = () => {
     console.log('[AdminDashboard] Filtered bookings count:', filteredBookings.length);
     console.log('[AdminDashboard] Agent bookings map:', agentBookingsMap);
     console.log('[AdminDashboard] Agents:', agents.map(a => ({ id: a.id, name: a.name })));
+    console.log('[AdminDashboard] Agent bookings map keys:', Object.keys(agentBookingsMap));
+    console.log('[AdminDashboard] Agent IDs from agents array:', agents.map(a => normalizeId(a.id)));
   }
 
   // Calculate performance data for each agent
   const agentPerformanceData = React.useMemo(() => {
     if (!agents || agents.length === 0) {
+      console.log('[AdminDashboard] No agents available for performance calculation');
       return [];
     }
 
-    return agents.map((agent, index) => {
+    if (Object.keys(agentBookingsMap).length === 0) {
+      console.log('[AdminDashboard] No agent bookings in map');
+      return [];
+    }
+
+    const result = agents.map((agent, index) => {
       const agentId = normalizeId(agent.id);
       if (!agentId) {
+        console.warn('[AdminDashboard] Agent has no ID:', agent);
         return null;
       }
+
+      console.log(`[AdminDashboard] Checking agent: ${agent.name}, ID: ${agentId}, Type: ${typeof agentId}`);
 
       // Try multiple matching strategies
       let agentBookings = agentBookingsMap[agentId] || 0;
@@ -182,24 +194,39 @@ const AdminDashboard: React.FC = () => {
       if (agentBookings === 0) {
         // Check all keys in the map for potential matches
         Object.keys(agentBookingsMap).forEach(bookingAgentId => {
-          const normalizedBookingId = normalizeId(bookingAgentId);
+          console.log(`[AdminDashboard] Comparing: agentId="${agentId}" (type: ${typeof agentId}) vs bookingAgentId="${bookingAgentId}" (type: ${typeof bookingAgentId})`);
+          
+          // Direct match first
+          if (bookingAgentId === agentId) {
+            agentBookings = agentBookingsMap[bookingAgentId];
+            console.log(`[AdminDashboard] ✓ Direct match found for ${agent.name}`);
+          }
           // Exact match after normalization
-          if (normalizedBookingId === agentId) {
-            agentBookings = agentBookingsMap[bookingAgentId];
-          }
-          // Case-insensitive match
-          else if (String(bookingAgentId).toLowerCase() === String(agentId).toLowerCase()) {
-            agentBookings = agentBookingsMap[bookingAgentId];
-          }
-          // Try matching after removing any whitespace or special characters
-          else if (String(bookingAgentId).replace(/\s+/g, '') === String(agentId).replace(/\s+/g, '')) {
-            agentBookings = agentBookingsMap[bookingAgentId];
+          else {
+            const normalizedBookingId = normalizeId(bookingAgentId);
+            if (normalizedBookingId === agentId) {
+              agentBookings = agentBookingsMap[bookingAgentId];
+              console.log(`[AdminDashboard] ✓ Normalized match found for ${agent.name}`);
+            }
+            // Case-insensitive match
+            else if (String(bookingAgentId).toLowerCase() === String(agentId).toLowerCase()) {
+              agentBookings = agentBookingsMap[bookingAgentId];
+              console.log(`[AdminDashboard] ✓ Case-insensitive match found for ${agent.name}`);
+            }
+            // Try matching after removing any whitespace or special characters
+            else if (String(bookingAgentId).replace(/\s+/g, '') === String(agentId).replace(/\s+/g, '')) {
+              agentBookings = agentBookingsMap[bookingAgentId];
+              console.log(`[AdminDashboard] ✓ Whitespace-normalized match found for ${agent.name}`);
+            }
           }
         });
+      } else {
+        console.log(`[AdminDashboard] ✓ Found direct match for agent ${agent.name} (${agentId}): ${agentBookings} bookings`);
       }
 
       // Only return agents with bookings
       if (agentBookings === 0) {
+        console.log(`[AdminDashboard] ✗ No bookings found for agent ${agent.name} (${agentId})`);
         return null;
       }
       
@@ -211,6 +238,10 @@ const AdminDashboard: React.FC = () => {
     }).filter((item): item is { name: string; value: number; color: string } => 
       item !== null && item.value > 0
     );
+
+    console.log('[AdminDashboard] Final agentPerformanceData:', result);
+    console.log('[AdminDashboard] Result length:', result.length);
+    return result;
   }, [agents, filteredBookings, agentBookingsMap]);
 
 
