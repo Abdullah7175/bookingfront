@@ -396,7 +396,8 @@ const AdminDashboard: React.FC = () => {
           agent: (booking as any)?.agent,
           agentId: (booking as any)?.agentId,
           agentName: bookingAgentName,
-          agentType: typeof (booking as any)?.agent
+          agentType: typeof (booking as any)?.agent,
+          fullBooking: JSON.stringify(booking, null, 2).substring(0, 500)
         });
       }
       

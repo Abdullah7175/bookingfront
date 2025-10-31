@@ -481,7 +481,7 @@ const SaleAgents: React.FC = () => {
               </div>
 
               {/* Last Booking */}
-              <div>
+              {/* <div>
                 <h4 className="text-xs sm:text-sm font-medium text-gray-900 mb-2">
                   Last Booking
                 </h4>
@@ -501,7 +501,7 @@ const SaleAgents: React.FC = () => {
                     </p>
                   )}
                 </div>
-              </div>
+              </div> */}
             </div>
           );
         })}

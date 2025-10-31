@@ -123,8 +123,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const mapped: Booking[] = (raw as any[]).map((b) => {
         const id = idOf(b)!;
-        const agentId = idOf(b?.agent) || b?.agentId;
-        const agentName = b?.agent?.name || b?.agentName;
+        // Extract agentId from multiple possible sources
+        let agentId = b?.agentId;
+        if (!agentId) {
+          // Try to extract from agent object
+          if (b?.agent) {
+            if (typeof b.agent === 'string') {
+              agentId = b.agent;
+            } else if (b.agent._id) {
+              agentId = idOf(b.agent._id);
+            } else if (b.agent.id) {
+              agentId = idOf(b.agent.id);
+            }
+          }
+        }
+        
+        // Extract agentName from multiple possible sources
+        let agentName = b?.agentName;
+        if (!agentName && b?.agent) {
+          if (typeof b.agent === 'object' && b.agent.name) {
+            agentName = b.agent.name;
+          }
+        }
+        
         const amount = toMoneyString(b?.amount ?? b?.totalAmount);
 
         return {
