@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import StatCard from './StatCard';
-import PieChart from './PieChart';
+import BarChart from './BarChart';
 import { http } from '../lib/http';
 import { 
   Calendar, 
@@ -88,12 +88,21 @@ const AdminDashboard: React.FC = () => {
     },
   ];
 
+  // Helper function to normalize agent ID - handles various formats
+  const normalizeId = (id: any): string | null => {
+    if (!id) return null;
+    // Handle ObjectId or string - convert to string and trim
+    const idStr = String(id).trim();
+    return idStr || null;
+  };
+
   // Helper function to normalize agent ID from booking
   const getAgentIdFromBooking = (booking: any): string | null => {
-    if (booking.agentId) return String(booking.agentId);
-    if (booking.agent?._id) return String(booking.agent._id);
-    if (booking.agent?.id) return String(booking.agent.id);
-    if (booking.agent) return String(booking.agent);
+    // Try multiple possible fields in order of preference
+    if (booking.agentId) return normalizeId(booking.agentId);
+    if (booking.agent?._id) return normalizeId(booking.agent._id);
+    if (booking.agent?.id) return normalizeId(booking.agent.id);
+    if (booking.agent) return normalizeId(booking.agent);
     return null;
   };
 
@@ -125,20 +134,84 @@ const AdminDashboard: React.FC = () => {
 
   // Calculate real-time agent performance
   const filteredBookings = getFilteredBookings();
-  const agentPerformanceData = agents && agents.length > 0 ? agents.map((agent, index) => {
-    const agentBookings = filteredBookings.filter(b => {
-      const bookingAgentId = getAgentIdFromBooking(b);
-      return bookingAgentId && String(agent.id) === bookingAgentId;
-    }).length;
-    const totalBookings = filteredBookings.length || 1; // Prevent division by zero
-    const percentage = totalBookings > 0 ? (agentBookings / totalBookings) * 100 : 0;
-    
-    return {
-      name: agent.name || `Agent ${index + 1}`,
-      value: isNaN(percentage) ? 0 : percentage,
-      color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#F59E0B'][index % 6]
-    };
-  }).filter(item => item.value > 0) : []; // Only show agents with bookings
+  
+  // Build a map of agent ID -> bookings count for better matching
+  // Use a more flexible key that handles different ID formats
+  const agentBookingsMap: Record<string, number> = {};
+  
+  filteredBookings.forEach(booking => {
+    const bookingAgentId = getAgentIdFromBooking(booking);
+    if (bookingAgentId) {
+      const normalizedId = normalizeId(bookingAgentId);
+      if (normalizedId) {
+        agentBookingsMap[normalizedId] = (agentBookingsMap[normalizedId] || 0) + 1;
+        // Also store the original ID as a variation
+        if (bookingAgentId !== normalizedId) {
+          agentBookingsMap[bookingAgentId] = (agentBookingsMap[bookingAgentId] || 0) + 1;
+        }
+      }
+    } else {
+      // Debug: log bookings without agent IDs
+      console.warn('[AdminDashboard] Booking without agent ID:', booking.id, booking);
+    }
+  });
+
+  // Debug: log the mapping
+  if (filteredBookings.length > 0) {
+    console.log('[AdminDashboard] Filtered bookings count:', filteredBookings.length);
+    console.log('[AdminDashboard] Agent bookings map:', agentBookingsMap);
+    console.log('[AdminDashboard] Agents:', agents.map(a => ({ id: a.id, name: a.name })));
+  }
+
+  // Calculate performance data for each agent
+  const agentPerformanceData = React.useMemo(() => {
+    if (!agents || agents.length === 0) {
+      return [];
+    }
+
+    return agents.map((agent, index) => {
+      const agentId = normalizeId(agent.id);
+      if (!agentId) {
+        return null;
+      }
+
+      // Try multiple matching strategies
+      let agentBookings = agentBookingsMap[agentId] || 0;
+      
+      // If no exact match, try all variations
+      if (agentBookings === 0) {
+        // Check all keys in the map for potential matches
+        Object.keys(agentBookingsMap).forEach(bookingAgentId => {
+          const normalizedBookingId = normalizeId(bookingAgentId);
+          // Exact match after normalization
+          if (normalizedBookingId === agentId) {
+            agentBookings = agentBookingsMap[bookingAgentId];
+          }
+          // Case-insensitive match
+          else if (String(bookingAgentId).toLowerCase() === String(agentId).toLowerCase()) {
+            agentBookings = agentBookingsMap[bookingAgentId];
+          }
+          // Try matching after removing any whitespace or special characters
+          else if (String(bookingAgentId).replace(/\s+/g, '') === String(agentId).replace(/\s+/g, '')) {
+            agentBookings = agentBookingsMap[bookingAgentId];
+          }
+        });
+      }
+
+      // Only return agents with bookings
+      if (agentBookings === 0) {
+        return null;
+      }
+      
+      return {
+        name: agent.name || `Agent ${index + 1}`,
+        value: agentBookings, // Use actual booking count for bar chart
+        color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
+      };
+    }).filter((item): item is { name: string; value: number; color: string } => 
+      item !== null && item.value > 0
+    );
+  }, [agents, filteredBookings, agentBookingsMap]);
 
 
   const handleApproveBooking = async (bookingId: string) => {
@@ -910,7 +983,7 @@ const AdminDashboard: React.FC = () => {
           {' '}({filteredBookings.length} booking{filteredBookings.length !== 1 ? 's' : ''})
         </div>
         {agentPerformanceData.length > 0 ? (
-          <PieChart data={agentPerformanceData} />
+          <BarChart data={agentPerformanceData} />
         ) : (
           <div className="text-center py-8 text-gray-500">
             {agents.length === 0 ? (
