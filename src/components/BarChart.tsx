@@ -10,9 +10,10 @@ interface BarChartProps {
   data: BarChartData[];
   isCurrency?: boolean;
   metricLabel?: string;
+  xAxisLabel?: string;
 }
 
-const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLabel = 'Value' }) => {
+const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLabel = 'Value', xAxisLabel = 'Date' }) => {
   // Format value based on type
   const formatValue = (value: number): string => {
     if (isCurrency) {
@@ -203,7 +204,7 @@ const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLab
 
         {/* X-axis label */}
         <div className="mt-16 text-center" style={{ marginLeft: `${chartLeftMargin}px` }}>
-          <span className="text-xs font-medium text-gray-600">Date</span>
+          <span className="text-xs font-medium text-gray-600">{xAxisLabel}</span>
         </div>
       </div>
 

@@ -19,6 +19,7 @@ const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const { bookings, inquiries, agents, approveChange, rejectChange, fetchAgents, fetchBookings, fetchInquiries } = useData();
   const [chartType, setChartType] = React.useState<'bookings' | 'profit' | 'revenue'>('bookings');
+  const [agentChartType, setAgentChartType] = React.useState<'bookings' | 'profit' | 'revenue'>('bookings');
   const [dashboardPeriod, setDashboardPeriod] = React.useState<'week' | 'month' | 'year'>('year');
 
   // Refresh data on mount
@@ -203,6 +204,188 @@ const AdminDashboard: React.FC = () => {
 
   // Calculate real-time booking performance grouped by dates
   const filteredBookings = getFilteredBookings();
+
+  // Helper function to get agent ID from booking
+  const getAgentIdFromBooking = (booking: any): string | null => {
+    // Try multiple possible fields in order of preference
+    if (booking.agentId) {
+      const id = String(booking.agentId).trim();
+      return id || null;
+    }
+    if (booking.agent?._id) {
+      const id = String(booking.agent._id).trim();
+      return id || null;
+    }
+    if (booking.agent?.id) {
+      const id = String(booking.agent.id).trim();
+      return id || null;
+    }
+    if (booking.agent) {
+      const id = String(booking.agent).trim();
+      return id || null;
+    }
+    return null;
+  };
+
+  // Helper function to normalize agent ID
+  const normalizeId = (id: any): string | null => {
+    if (!id) return null;
+    const idStr = String(id).trim();
+    return idStr || null;
+  };
+
+  // Helper function to get agent name (from agents list or booking data)
+  const getAgentName = (agentId: string | null, bookingAgentName?: string): string => {
+    if (!agentId) return 'Unassigned';
+    
+    // First try to find in agents list
+    if (agents && agents.length > 0) {
+      for (const agent of agents) {
+        const agentIdNormalized = normalizeId(agent.id);
+        if (agentIdNormalized && (
+          agentIdNormalized === agentId ||
+          String(agentIdNormalized).toLowerCase() === String(agentId).toLowerCase() ||
+          String(agentIdNormalized).replace(/\s+/g, '') === String(agentId).replace(/\s+/g, '')
+        )) {
+          // Return agent name - show all agents including admin names properly
+          const name = agent.name || '';
+          if (name) {
+            // If name contains admin/super, show as "Admin"
+            if (name.toLowerCase().includes('admin') || name.toLowerCase().includes('super')) {
+              return 'Admin';
+            }
+            // Otherwise return the agent name
+            return name;
+          }
+        }
+      }
+    }
+    
+    // Fallback to booking agent name
+    if (bookingAgentName) {
+      const name = String(bookingAgentName).trim();
+      if (name) {
+        // If name contains admin/super, show as "Admin"
+        if (name.toLowerCase().includes('admin') || name.toLowerCase().includes('super')) {
+          return 'Admin';
+        }
+        // Otherwise return the agent name
+        return name;
+      }
+    }
+    
+    // Check if agentId matches current user (admin creating their own bookings)
+    const currentUserId = (user as any)?._id || (user as any)?.id;
+    if (currentUserId) {
+      const currentUserIdStr = String(currentUserId).trim();
+      if (currentUserIdStr === String(agentId).trim() || 
+          currentUserIdStr.toLowerCase() === String(agentId).toLowerCase()) {
+        // Check if current user is admin
+        const userRole = (user as any)?.role || '';
+        if (userRole === 'admin' || String(userRole).toLowerCase().includes('admin') || String(userRole).toLowerCase().includes('super')) {
+          return 'Admin';
+        }
+        // Return user name if available
+        if (user?.name) {
+          return user.name;
+        }
+      }
+    }
+    
+    // Last resort: if we have an ID but no match, check if it might be admin
+    // Try to find in User model via API context - but for now, return Unknown Agent
+    return 'Unknown Agent';
+  };
+
+  // Calculate agent performance data grouped by agent names
+  const agentPerformanceByNames = React.useMemo(() => {
+    const result: Array<{ name: string; value: number; color: string }> = [];
+    
+    if (filteredBookings.length === 0) {
+      return result;
+    }
+
+    // Build agent metrics map
+    const agentMetricsMap: Record<string, { bookings: number; profit: number; revenue: number }> = {};
+    let unassignedMetrics = { bookings: 0, profit: 0, revenue: 0 };
+
+    filteredBookings.forEach(booking => {
+      const bookingAgentId = getAgentIdFromBooking(booking);
+      const bookingAgentName = (booking as any)?.agentName || (booking as any)?.agent?.name || '';
+      
+      // Calculate profit and revenue
+      const costingTotals = (booking as any)?.costing?.totals || (booking as any)?.pricing?.totals || {};
+      const totalCost = costingTotals.totalCostPrice || costingTotals.totalCost || 0;
+      const totalSale = costingTotals.totalSalePrice || costingTotals.totalSale || (booking as any)?.totalAmount || (booking as any)?.amount || 0;
+      const profit = costingTotals.profit ?? (totalSale - totalCost);
+      const revenue = totalSale;
+
+      if (bookingAgentId) {
+        // Get agent name for this booking
+        const agentName = getAgentName(bookingAgentId, bookingAgentName);
+        
+        if (!agentMetricsMap[agentName]) {
+          agentMetricsMap[agentName] = { bookings: 0, profit: 0, revenue: 0 };
+        }
+        
+        agentMetricsMap[agentName].bookings += 1;
+        agentMetricsMap[agentName].profit += profit;
+        agentMetricsMap[agentName].revenue += revenue;
+      } else {
+        // Unassigned bookings
+        unassignedMetrics.bookings += 1;
+        unassignedMetrics.profit += profit;
+        unassignedMetrics.revenue += revenue;
+      }
+    });
+
+    // Convert to chart data format
+    const colors = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
+    let colorIndex = 0;
+
+    Object.keys(agentMetricsMap).forEach(agentName => {
+      const metrics = agentMetricsMap[agentName];
+      
+      let value = 0;
+      if (agentChartType === 'bookings') {
+        value = metrics.bookings;
+      } else if (agentChartType === 'profit') {
+        value = metrics.profit;
+      } else if (agentChartType === 'revenue') {
+        value = metrics.revenue;
+      }
+
+      if (value > 0) {
+        result.push({
+          name: agentName,
+          value: value,
+          color: colors[colorIndex % colors.length]
+        });
+        colorIndex++;
+      }
+    });
+
+    // Add unassigned if any
+    let unassignedValue = 0;
+    if (agentChartType === 'bookings') {
+      unassignedValue = unassignedMetrics.bookings;
+    } else if (agentChartType === 'profit') {
+      unassignedValue = unassignedMetrics.profit;
+    } else if (agentChartType === 'revenue') {
+      unassignedValue = unassignedMetrics.revenue;
+    }
+
+    if (unassignedValue > 0) {
+      result.push({
+        name: 'Unassigned',
+        value: unassignedValue,
+        color: '#9CA3AF'
+      });
+    }
+
+    // Sort by value (descending)
+    return result.sort((a, b) => b.value - a.value);
+  }, [filteredBookings, agentChartType, agents, user]);
 
   // Helper function to format date labels based on period
   const formatDateLabel = (date: Date, period: 'week' | 'month' | 'year'): string => {
@@ -1251,6 +1434,83 @@ const AdminDashboard: React.FC = () => {
               <div>
                 <p>No agents have bookings in this period</p>
                 <p className="text-sm mt-2">Try selecting a different time period</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Agent Performance Chart */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-4">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {agentChartType === 'bookings' && 'Bookings by Agents'}
+            {agentChartType === 'profit' && 'Profit by Agents'}
+            {agentChartType === 'revenue' && 'Revenue by Agents'}
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Agent Chart Type selector */}
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+              <button
+                onClick={() => setAgentChartType('bookings')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                  agentChartType === 'bookings'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Bookings
+              </button>
+              <button
+                onClick={() => setAgentChartType('profit')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
+                  agentChartType === 'profit'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Profit
+              </button>
+              <button
+                onClick={() => setAgentChartType('revenue')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
+                  agentChartType === 'revenue'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Revenue
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="text-sm text-gray-500 mb-6">
+          {dashboardPeriod === 'week' && 'Current Week'}
+          {dashboardPeriod === 'month' && 'Current Month'}
+          {dashboardPeriod === 'year' && 'Current Year'}
+          {' - '}
+          {agentChartType === 'bookings' && `${filteredBookings.length} booking${filteredBookings.length !== 1 ? 's' : ''}`}
+          {agentChartType === 'profit' && `Total profit: $${agentPerformanceByNames.reduce((sum, item) => sum + item.value, 0).toLocaleString()}`}
+          {agentChartType === 'revenue' && `Total revenue: $${agentPerformanceByNames.reduce((sum, item) => sum + item.value, 0).toLocaleString()}`}
+        </div>
+        {agentPerformanceByNames.length > 0 ? (
+          <BarChart 
+            data={agentPerformanceByNames} 
+            isCurrency={agentChartType === 'profit' || agentChartType === 'revenue'}
+            metricLabel={agentChartType === 'bookings' ? 'Bookings' : agentChartType === 'profit' ? 'Profit' : 'Revenue'}
+            xAxisLabel="Agents"
+          />
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            {filteredBookings.length === 0 ? (
+              <div>
+                <p>No booking data available for {dashboardPeriod === 'week' ? 'current week' : dashboardPeriod === 'month' ? 'current month' : 'current year'}</p>
+                <p className="text-sm mt-2">Try selecting a different time period</p>
+              </div>
+            ) : (
+              <div>
+                <p>No agent bookings found in this period</p>
+                <p className="text-sm mt-2">All bookings may be unassigned</p>
               </div>
             )}
           </div>
