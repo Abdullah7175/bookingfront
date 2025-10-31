@@ -2,7 +2,7 @@
 import axios, { InternalAxiosRequestConfig } from "axios";
 
 /** ---------- Config ---------- **/
-// Helper to normalize hostname to always include www if it's a root domain
+// Helper to normalize hostname or full URL to always use www.mtumrah.com
 const normalizeHostname = (hostname: string): string => {
   // If hostname is mtumrah.com, return www.mtumrah.com
   if (hostname === 'mtumrah.com') {
@@ -17,11 +17,32 @@ const normalizeHostname = (hostname: string): string => {
   return hostname;
 };
 
-const API_BASE =
-import.meta.env.VITE_API_BASE || 
-(typeof window !== "undefined" 
-  ? `${window.location.protocol}//${normalizeHostname(window.location.hostname)}`
-  : "https://localhost:7000");
+// Helper to normalize API base URL (handles both hostname and full URLs)
+const normalizeApiBase = (baseUrl: string | undefined): string => {
+  if (!baseUrl) {
+    return typeof window !== "undefined" 
+      ? `${window.location.protocol}//${normalizeHostname(window.location.hostname)}`
+      : "https://localhost:7000";
+  }
+  
+  // If it's a full URL, normalize the hostname part
+  try {
+    const url = new URL(baseUrl);
+    if (url.hostname === 'mtumrah.com') {
+      url.hostname = 'www.mtumrah.com';
+      return url.toString().replace(/\/$/, ''); // Remove trailing slash
+    }
+    return baseUrl.replace(/\/$/, ''); // Remove trailing slash
+  } catch {
+    // If it's not a valid URL, treat it as hostname
+    const normalized = normalizeHostname(baseUrl);
+    return typeof window !== "undefined"
+      ? `${window.location.protocol}//${normalized}`
+      : `https://${normalized}`;
+  }
+};
+
+const API_BASE = normalizeApiBase(import.meta.env.VITE_API_BASE);
 
 const isDev = import.meta.env.DEV === true;
 
