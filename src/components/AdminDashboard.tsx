@@ -88,10 +88,49 @@ const AdminDashboard: React.FC = () => {
     },
   ];
 
+  // Helper function to normalize agent ID from booking
+  const getAgentIdFromBooking = (booking: any): string | null => {
+    if (booking.agentId) return String(booking.agentId);
+    if (booking.agent?._id) return String(booking.agent._id);
+    if (booking.agent?.id) return String(booking.agent.id);
+    if (booking.agent) return String(booking.agent);
+    return null;
+  };
+
+  // Filter bookings based on selected period
+  const getFilteredBookings = () => {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (chartPeriod) {
+      case 'week':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), 0, 1);
+    }
+
+    return bookings.filter(booking => {
+      const bookingDate = new Date(booking.createdAt || booking.date || 0);
+      return bookingDate >= startDate && bookingDate <= now;
+    });
+  };
+
   // Calculate real-time agent performance
+  const filteredBookings = getFilteredBookings();
   const agentPerformanceData = agents && agents.length > 0 ? agents.map((agent, index) => {
-    const agentBookings = bookings.filter(b => b.agentId === agent.id).length;
-    const totalBookings = bookings.length || 1; // Prevent division by zero
+    const agentBookings = filteredBookings.filter(b => {
+      const bookingAgentId = getAgentIdFromBooking(b);
+      return bookingAgentId && String(agent.id) === bookingAgentId;
+    }).length;
+    const totalBookings = filteredBookings.length || 1; // Prevent division by zero
     const percentage = totalBookings > 0 ? (agentBookings / totalBookings) * 100 : 0;
     
     return {
@@ -99,7 +138,7 @@ const AdminDashboard: React.FC = () => {
       value: isNaN(percentage) ? 0 : percentage,
       color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#F59E0B'][index % 6]
     };
-  }) : [];
+  }).filter(item => item.value > 0) : []; // Only show agents with bookings
 
 
   const handleApproveBooking = async (bookingId: string) => {
@@ -814,21 +853,62 @@ const AdminDashboard: React.FC = () => {
 
       {/* Agent Performance Chart */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-4">
           <h3 className="text-lg font-semibold text-gray-900">
             Bookings by Agents
           </h3>
-          <button
-            onClick={() => {
-              console.log('🔄 Manual refresh triggered');
-              fetchAgents();
-            }}
-            className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Period selector */}
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+              <button
+                onClick={() => setChartPeriod('week')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                  chartPeriod === 'week'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Current Week
+              </button>
+              <button
+                onClick={() => setChartPeriod('month')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
+                  chartPeriod === 'month'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Current Month
+              </button>
+              <button
+                onClick={() => setChartPeriod('year')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
+                  chartPeriod === 'year'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Current Year
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                console.log('🔄 Manual refresh triggered');
+                fetchAgents();
+                fetchBookings();
+              }}
+              className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
-        <div className="text-sm text-gray-500 mb-6">Current Year</div>
+        <div className="text-sm text-gray-500 mb-6">
+          {chartPeriod === 'week' && 'Current Week'}
+          {chartPeriod === 'month' && 'Current Month'}
+          {chartPeriod === 'year' && 'Current Year'}
+          {' '}({filteredBookings.length} booking{filteredBookings.length !== 1 ? 's' : ''})
+        </div>
         {agentPerformanceData.length > 0 ? (
           <PieChart data={agentPerformanceData} />
         ) : (
@@ -840,7 +920,17 @@ const AdminDashboard: React.FC = () => {
                   {!localStorage.getItem('token') ? 'Please log in to view agents' : 'Loading agents...'}
                 </p>
               </div>
-            ) : 'No booking data available'}
+            ) : filteredBookings.length === 0 ? (
+              <div>
+                <p>No booking data available for {chartPeriod === 'week' ? 'current week' : chartPeriod === 'month' ? 'current month' : 'current year'}</p>
+                <p className="text-sm mt-2">Try selecting a different time period</p>
+              </div>
+            ) : (
+              <div>
+                <p>No agents have bookings in this period</p>
+                <p className="text-sm mt-2">Try selecting a different time period</p>
+              </div>
+            )}
           </div>
         )}
       </div>
