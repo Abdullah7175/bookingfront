@@ -19,6 +19,7 @@ const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const { bookings, inquiries, agents, approveChange, rejectChange, fetchAgents, fetchBookings, fetchInquiries } = useData();
   const [chartPeriod, setChartPeriod] = React.useState<'week' | 'month' | 'year'>('year');
+  const [chartType, setChartType] = React.useState<'bookings' | 'profit' | 'revenue'>('bookings');
 
   // Refresh data on mount
   React.useEffect(() => {
@@ -136,29 +137,50 @@ const AdminDashboard: React.FC = () => {
   // Calculate real-time agent performance
   const filteredBookings = getFilteredBookings();
   
-  // Build a map of agent ID -> bookings count for better matching
+  // Build maps of agent ID -> metrics for better matching
   // Use a more flexible key that handles different ID formats
-  const agentBookingsMap: Record<string, number> = {};
-  let unassignedBookings = 0;
+  const agentMetricsMap: Record<string, { bookings: number; profit: number; revenue: number }> = {};
+  let unassignedMetrics = { bookings: 0, profit: 0, revenue: 0 };
   
   filteredBookings.forEach(booking => {
     const bookingAgentId = getAgentIdFromBooking(booking);
+    
+    // Calculate profit and revenue for this booking
+    const costingTotals = (booking as any)?.costing?.totals || (booking as any)?.pricing?.totals || {};
+    const totalCost = costingTotals.totalCostPrice || costingTotals.totalCost || 0;
+    const totalSale = costingTotals.totalSalePrice || costingTotals.totalSale || (booking as any)?.totalAmount || (booking as any)?.amount || 0;
+    const profit = costingTotals.profit ?? (totalSale - totalCost);
+    const revenue = totalSale;
+    
     if (bookingAgentId) {
       const normalizedId = normalizeId(bookingAgentId);
       if (normalizedId) {
-        agentBookingsMap[normalizedId] = (agentBookingsMap[normalizedId] || 0) + 1;
+        if (!agentMetricsMap[normalizedId]) {
+          agentMetricsMap[normalizedId] = { bookings: 0, profit: 0, revenue: 0 };
+        }
+        agentMetricsMap[normalizedId].bookings += 1;
+        agentMetricsMap[normalizedId].profit += profit;
+        agentMetricsMap[normalizedId].revenue += revenue;
+        
         // Also store the original ID as a variation
         if (bookingAgentId !== normalizedId) {
-          agentBookingsMap[bookingAgentId] = (agentBookingsMap[bookingAgentId] || 0) + 1;
+          if (!agentMetricsMap[bookingAgentId]) {
+            agentMetricsMap[bookingAgentId] = { bookings: 0, profit: 0, revenue: 0 };
+          }
+          agentMetricsMap[bookingAgentId].bookings += 1;
+          agentMetricsMap[bookingAgentId].profit += profit;
+          agentMetricsMap[bookingAgentId].revenue += revenue;
         }
       }
     } else {
       // Count bookings without agent IDs as "Unassigned"
-      unassignedBookings++;
+      unassignedMetrics.bookings += 1;
+      unassignedMetrics.profit += profit;
+      unassignedMetrics.revenue += revenue;
     }
   });
 
-  // Calculate performance data for each agent
+  // Calculate performance data for each agent based on selected chart type
   const agentPerformanceData = React.useMemo(() => {
     const result: Array<{ name: string; value: number; color: string }> = [];
     
@@ -170,35 +192,45 @@ const AdminDashboard: React.FC = () => {
           return;
         }
 
-        // Try multiple matching strategies
-        let agentBookings = agentBookingsMap[agentId] || 0;
+        // Try multiple matching strategies to find metrics
+        let agentMetrics = agentMetricsMap[agentId] || { bookings: 0, profit: 0, revenue: 0 };
         
         // If no exact match, try all variations
-        if (agentBookings === 0) {
-          Object.keys(agentBookingsMap).forEach(bookingAgentId => {
+        if (agentMetrics.bookings === 0 && agentMetrics.profit === 0 && agentMetrics.revenue === 0) {
+          Object.keys(agentMetricsMap).forEach(bookingAgentId => {
             // Direct match
             if (bookingAgentId === agentId) {
-              agentBookings = agentBookingsMap[bookingAgentId];
+              agentMetrics = agentMetricsMap[bookingAgentId];
             }
             // Exact match after normalization
             else {
               const normalizedBookingId = normalizeId(bookingAgentId);
               if (normalizedBookingId === agentId) {
-                agentBookings = agentBookingsMap[bookingAgentId];
+                agentMetrics = agentMetricsMap[bookingAgentId];
               }
               // Case-insensitive match
               else if (String(bookingAgentId).toLowerCase() === String(agentId).toLowerCase()) {
-                agentBookings = agentBookingsMap[bookingAgentId];
+                agentMetrics = agentMetricsMap[bookingAgentId];
               }
             }
           });
         }
 
-        // Only add agents with bookings
-        if (agentBookings > 0) {
+        // Get value based on chart type
+        let value = 0;
+        if (chartType === 'bookings') {
+          value = agentMetrics.bookings;
+        } else if (chartType === 'profit') {
+          value = agentMetrics.profit;
+        } else if (chartType === 'revenue') {
+          value = agentMetrics.revenue;
+        }
+
+        // Only add agents with data
+        if (value > 0) {
           result.push({
             name: agent.name || `Agent ${index + 1}`,
-            value: agentBookings,
+            value: value,
             color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
           });
         }
@@ -207,7 +239,7 @@ const AdminDashboard: React.FC = () => {
 
     // Handle bookings with agent IDs that don't match any known agents
     const knownAgentIds = new Set(agents.map(a => normalizeId(a.id)).filter((id): id is string => Boolean(id)));
-    Object.keys(agentBookingsMap).forEach(bookingAgentId => {
+    Object.keys(agentMetricsMap).forEach(bookingAgentId => {
       const normalizedBookingId = normalizeId(bookingAgentId);
       // If this agent ID from bookings doesn't match any known agent, create an entry for it
       if (normalizedBookingId && !knownAgentIds.has(normalizedBookingId) && !knownAgentIds.has(bookingAgentId)) {
@@ -216,27 +248,48 @@ const AdminDashboard: React.FC = () => {
           item.name.includes(bookingAgentId) || (normalizedBookingId && item.name.includes(normalizedBookingId))
         );
         if (!alreadyAdded) {
-          result.push({
-            name: `Agent (${bookingAgentId.slice(-6)})`, // Show last 6 chars of ID
-            value: agentBookingsMap[bookingAgentId],
-            color: '#9CA3AF' // Gray color for unknown agents
-          });
+          const metrics = agentMetricsMap[bookingAgentId];
+          let value = 0;
+          if (chartType === 'bookings') {
+            value = metrics.bookings;
+          } else if (chartType === 'profit') {
+            value = metrics.profit;
+          } else if (chartType === 'revenue') {
+            value = metrics.revenue;
+          }
+          
+          if (value > 0) {
+            result.push({
+              name: `Agent (${bookingAgentId.slice(-6)})`, // Show last 6 chars of ID
+              value: value,
+              color: '#9CA3AF' // Gray color for unknown agents
+            });
+          }
         }
       }
     });
 
-    // Add unassigned bookings if any
-    if (unassignedBookings > 0) {
+    // Add unassigned if any
+    let unassignedValue = 0;
+    if (chartType === 'bookings') {
+      unassignedValue = unassignedMetrics.bookings;
+    } else if (chartType === 'profit') {
+      unassignedValue = unassignedMetrics.profit;
+    } else if (chartType === 'revenue') {
+      unassignedValue = unassignedMetrics.revenue;
+    }
+    
+    if (unassignedValue > 0) {
       result.push({
         name: 'Unassigned',
-        value: unassignedBookings,
+        value: unassignedValue,
         color: '#D1D5DB' // Light gray for unassigned
       });
     }
 
-    // Sort by booking count (descending)
+    // Sort by value (descending)
     return result.sort((a, b) => b.value - a.value);
-  }, [agents, filteredBookings, agentBookingsMap, unassignedBookings]);
+  }, [agents, filteredBookings, agentMetricsMap, unassignedMetrics, chartType]);
 
 
   const handleApproveBooking = async (bookingId: string) => {
@@ -953,40 +1006,75 @@ const AdminDashboard: React.FC = () => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-4">
           <h3 className="text-lg font-semibold text-gray-900">
-            Bookings by Agents
+            {chartType === 'bookings' && 'Bookings by Agents'}
+            {chartType === 'profit' && 'Profit by Agents'}
+            {chartType === 'revenue' && 'Revenue by Agents'}
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Chart Type selector */}
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+              <button
+                onClick={() => setChartType('bookings')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                  chartType === 'bookings'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Bookings
+              </button>
+              <button
+                onClick={() => setChartType('profit')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
+                  chartType === 'profit'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Profit
+              </button>
+              <button
+                onClick={() => setChartType('revenue')}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
+                  chartType === 'revenue'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Revenue
+              </button>
+            </div>
             {/* Period selector */}
             <div className="flex rounded-lg border border-gray-300 overflow-hidden">
               <button
                 onClick={() => setChartPeriod('week')}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                   chartPeriod === 'week'
-                    ? 'bg-blue-500 text-white'
+                    ? 'bg-green-500 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                Current Week
+                Week
               </button>
               <button
                 onClick={() => setChartPeriod('month')}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
                   chartPeriod === 'month'
-                    ? 'bg-blue-500 text-white'
+                    ? 'bg-green-500 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                Current Month
+                Month
               </button>
               <button
                 onClick={() => setChartPeriod('year')}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
                   chartPeriod === 'year'
-                    ? 'bg-blue-500 text-white'
+                    ? 'bg-green-500 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                Current Year
+                Year
               </button>
             </div>
             <button
@@ -1005,10 +1093,17 @@ const AdminDashboard: React.FC = () => {
           {chartPeriod === 'week' && 'Current Week'}
           {chartPeriod === 'month' && 'Current Month'}
           {chartPeriod === 'year' && 'Current Year'}
-          {' '}({filteredBookings.length} booking{filteredBookings.length !== 1 ? 's' : ''})
+          {' - '}
+          {chartType === 'bookings' && `${filteredBookings.length} booking${filteredBookings.length !== 1 ? 's' : ''}`}
+          {chartType === 'profit' && `Showing profit amounts`}
+          {chartType === 'revenue' && `Showing revenue amounts`}
         </div>
         {agentPerformanceData.length > 0 ? (
-          <BarChart data={agentPerformanceData} />
+          <BarChart 
+            data={agentPerformanceData} 
+            isCurrency={chartType === 'profit' || chartType === 'revenue'}
+            metricLabel={chartType === 'bookings' ? 'Bookings' : chartType === 'profit' ? 'Profit' : 'Revenue'}
+          />
         ) : (
           <div className="text-center py-8 text-gray-500">
             {agents.length === 0 ? (
