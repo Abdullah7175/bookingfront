@@ -139,11 +139,13 @@ const AdminDashboard: React.FC = () => {
   
   // Build maps of agent ID -> metrics for better matching
   // Use a more flexible key that handles different ID formats
-  const agentMetricsMap: Record<string, { bookings: number; profit: number; revenue: number }> = {};
+  // Also create a map to store agent names from bookings for better identification
+  const agentMetricsMap: Record<string, { bookings: number; profit: number; revenue: number; agentName?: string }> = {};
   let unassignedMetrics = { bookings: 0, profit: 0, revenue: 0 };
   
   filteredBookings.forEach(booking => {
     const bookingAgentId = getAgentIdFromBooking(booking);
+    const bookingAgentName = (booking as any)?.agentName || (booking as any)?.agent?.name || '';
     
     // Calculate profit and revenue for this booking
     const costingTotals = (booking as any)?.costing?.totals || (booking as any)?.pricing?.totals || {};
@@ -155,21 +157,32 @@ const AdminDashboard: React.FC = () => {
     if (bookingAgentId) {
       const normalizedId = normalizeId(bookingAgentId);
       if (normalizedId) {
+        // Initialize if doesn't exist
         if (!agentMetricsMap[normalizedId]) {
-          agentMetricsMap[normalizedId] = { bookings: 0, profit: 0, revenue: 0 };
+          agentMetricsMap[normalizedId] = { bookings: 0, profit: 0, revenue: 0, agentName: bookingAgentName || undefined };
         }
+        
+        // Increment metrics
         agentMetricsMap[normalizedId].bookings += 1;
         agentMetricsMap[normalizedId].profit += profit;
         agentMetricsMap[normalizedId].revenue += revenue;
         
-        // Also store the original ID as a variation
+        // Update agent name if we have one and don't have one stored
+        if (bookingAgentName && !agentMetricsMap[normalizedId].agentName) {
+          agentMetricsMap[normalizedId].agentName = bookingAgentName;
+        }
+        
+        // Also store the original ID as a variation (if different) for matching purposes
         if (bookingAgentId !== normalizedId) {
           if (!agentMetricsMap[bookingAgentId]) {
-            agentMetricsMap[bookingAgentId] = { bookings: 0, profit: 0, revenue: 0 };
+            agentMetricsMap[bookingAgentId] = { bookings: 0, profit: 0, revenue: 0, agentName: bookingAgentName || undefined };
           }
           agentMetricsMap[bookingAgentId].bookings += 1;
           agentMetricsMap[bookingAgentId].profit += profit;
           agentMetricsMap[bookingAgentId].revenue += revenue;
+          if (bookingAgentName && !agentMetricsMap[bookingAgentId].agentName) {
+            agentMetricsMap[bookingAgentId].agentName = bookingAgentName;
+          }
         }
       }
     } else {
@@ -184,7 +197,23 @@ const AdminDashboard: React.FC = () => {
   const agentPerformanceData = React.useMemo(() => {
     const result: Array<{ name: string; value: number; color: string }> = [];
     
-    // Process known agents
+    // Create a comprehensive set of all possible agent ID variations
+    const knownAgentIdSet = new Set<string>();
+    const agentIdToNameMap = new Map<string, string>();
+    
+    if (agents && agents.length > 0) {
+      agents.forEach((agent) => {
+        const agentId = normalizeId(agent.id);
+        if (agentId) {
+          knownAgentIdSet.add(agentId);
+          knownAgentIdSet.add(agentId.toLowerCase());
+          agentIdToNameMap.set(agentId, agent.name || 'Unknown Agent');
+          agentIdToNameMap.set(agentId.toLowerCase(), agent.name || 'Unknown Agent');
+        }
+      });
+    }
+    
+    // Process known agents and match their metrics
     if (agents && agents.length > 0) {
       agents.forEach((agent, index) => {
         const agentId = normalizeId(agent.id);
@@ -192,26 +221,26 @@ const AdminDashboard: React.FC = () => {
           return;
         }
 
-        // Try multiple matching strategies to find metrics
-        let agentMetrics = agentMetricsMap[agentId] || { bookings: 0, profit: 0, revenue: 0 };
+        // Try to find metrics for this agent by checking all variations
+        let agentMetrics: { bookings: number; profit: number; revenue: number; agentName?: string } = { bookings: 0, profit: 0, revenue: 0 };
+        let foundMatch = false;
         
-        // If no exact match, try all variations
-        if (agentMetrics.bookings === 0 && agentMetrics.profit === 0 && agentMetrics.revenue === 0) {
+        // First try exact match
+        if (agentMetricsMap[agentId]) {
+          agentMetrics = agentMetricsMap[agentId];
+          foundMatch = true;
+        } else {
+          // Try all variations in the map
           Object.keys(agentMetricsMap).forEach(bookingAgentId => {
-            // Direct match
-            if (bookingAgentId === agentId) {
+            if (foundMatch) return; // Already found a match
+            
+            const normalizedBookingId = normalizeId(bookingAgentId);
+            if (normalizedBookingId === agentId || bookingAgentId === agentId) {
               agentMetrics = agentMetricsMap[bookingAgentId];
-            }
-            // Exact match after normalization
-            else {
-              const normalizedBookingId = normalizeId(bookingAgentId);
-              if (normalizedBookingId === agentId) {
-                agentMetrics = agentMetricsMap[bookingAgentId];
-              }
-              // Case-insensitive match
-              else if (String(bookingAgentId).toLowerCase() === String(agentId).toLowerCase()) {
-                agentMetrics = agentMetricsMap[bookingAgentId];
-              }
+              foundMatch = true;
+            } else if (normalizedBookingId && normalizedBookingId.toLowerCase() === agentId.toLowerCase()) {
+              agentMetrics = agentMetricsMap[bookingAgentId];
+              foundMatch = true;
             }
           });
         }
@@ -228,8 +257,9 @@ const AdminDashboard: React.FC = () => {
 
         // Only add agents with data
         if (value > 0) {
+          const displayName = agent.name || agentMetrics.agentName || `Agent ${index + 1}`;
           result.push({
-            name: agent.name || `Agent ${index + 1}`,
+            name: displayName,
             value: value,
             color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
           });
@@ -238,38 +268,51 @@ const AdminDashboard: React.FC = () => {
     }
 
     // Handle bookings with agent IDs that don't match any known agents
-    const knownAgentIds = new Set(agents.map(a => normalizeId(a.id)).filter((id): id is string => Boolean(id)));
+    // Check if we've already processed all agent IDs from the map
+    const processedIds = new Set<string>();
     Object.keys(agentMetricsMap).forEach(bookingAgentId => {
       const normalizedBookingId = normalizeId(bookingAgentId);
-      // If this agent ID from bookings doesn't match any known agent, create an entry for it
-      if (normalizedBookingId && !knownAgentIds.has(normalizedBookingId) && !knownAgentIds.has(bookingAgentId)) {
-        // Check if we already added this agent (might have multiple variations)
-        const alreadyAdded = result.some(item => 
-          item.name.includes(bookingAgentId) || (normalizedBookingId && item.name.includes(normalizedBookingId))
-        );
-        if (!alreadyAdded) {
-          const metrics = agentMetricsMap[bookingAgentId];
-          let value = 0;
-          if (chartType === 'bookings') {
-            value = metrics.bookings;
-          } else if (chartType === 'profit') {
-            value = metrics.profit;
-          } else if (chartType === 'revenue') {
-            value = metrics.revenue;
-          }
-          
-          if (value > 0) {
-            result.push({
-              name: `Agent (${bookingAgentId.slice(-6)})`, // Show last 6 chars of ID
-              value: value,
-              color: '#9CA3AF' // Gray color for unknown agents
-            });
+      
+      // Skip if already processed or if it matches a known agent
+      if (processedIds.has(bookingAgentId) || processedIds.has(normalizedBookingId || '')) {
+        return;
+      }
+      
+      const isKnownAgent = normalizedBookingId && (
+        knownAgentIdSet.has(normalizedBookingId) || 
+        knownAgentIdSet.has(bookingAgentId) ||
+        knownAgentIdSet.has(normalizedBookingId.toLowerCase()) ||
+        knownAgentIdSet.has(bookingAgentId.toLowerCase())
+      );
+      
+      if (!isKnownAgent) {
+        const metrics = agentMetricsMap[bookingAgentId];
+        let value = 0;
+        if (chartType === 'bookings') {
+          value = metrics.bookings;
+        } else if (chartType === 'profit') {
+          value = metrics.profit;
+        } else if (chartType === 'revenue') {
+          value = metrics.revenue;
+        }
+        
+        if (value > 0) {
+          // Use agent name from booking if available, otherwise show "Admin" or "Unknown Agent"
+          const displayName = metrics.agentName || (user?.role === 'admin' ? 'Admin' : 'Unknown Agent');
+          result.push({
+            name: displayName,
+            value: value,
+            color: '#9CA3AF' // Gray color for unknown agents
+          });
+          processedIds.add(bookingAgentId);
+          if (normalizedBookingId) {
+            processedIds.add(normalizedBookingId);
           }
         }
       }
     });
 
-    // Add unassigned if any
+    // Add unassigned if any (only show if it's not just admin bookings)
     let unassignedValue = 0;
     if (chartType === 'bookings') {
       unassignedValue = unassignedMetrics.bookings;
@@ -279,9 +322,11 @@ const AdminDashboard: React.FC = () => {
       unassignedValue = unassignedMetrics.revenue;
     }
     
+    // Only show "Unassigned" if there are actual unassigned bookings
+    // If user is admin, it might be admin-created bookings
     if (unassignedValue > 0) {
       result.push({
-        name: 'Unassigned',
+        name: user?.role === 'admin' ? 'Admin' : 'Unassigned',
         value: unassignedValue,
         color: '#D1D5DB' // Light gray for unassigned
       });
@@ -289,7 +334,7 @@ const AdminDashboard: React.FC = () => {
 
     // Sort by value (descending)
     return result.sort((a, b) => b.value - a.value);
-  }, [agents, filteredBookings, agentMetricsMap, unassignedMetrics, chartType]);
+  }, [agents, filteredBookings, agentMetricsMap, unassignedMetrics, chartType, user]);
 
 
   const handleApproveBooking = async (bookingId: string) => {
