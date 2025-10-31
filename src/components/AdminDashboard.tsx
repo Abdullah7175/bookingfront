@@ -118,7 +118,7 @@ const AdminDashboard: React.FC = () => {
     }
 
     return bookings.filter(booking => {
-      const bookingDate = new Date(booking.createdAt || booking.date || 0);
+      const bookingDate = new Date(booking.createdAt || (booking as any).date || 0);
       return bookingDate >= startDate && bookingDate <= now;
     });
   };

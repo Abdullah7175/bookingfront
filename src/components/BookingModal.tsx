@@ -1249,7 +1249,14 @@ const BookingModal: React.FC<BookingModalProps> = ({
                           value={h.checkIn}
                           onChange={(e) => {
                             const next = [...(formData.hotels ?? [])];
-                            next[idx] = { ...next[idx], checkIn: e.target.value };
+                            const checkInDate = e.target.value;
+                            next[idx] = { ...next[idx], checkIn: checkInDate };
+                            // If check-out is before or equal to new check-in, clear or adjust check-out
+                            if (checkInDate && next[idx].checkOut && next[idx].checkOut <= checkInDate) {
+                              const checkIn = new Date(checkInDate);
+                              checkIn.setDate(checkIn.getDate() + 1);
+                              next[idx].checkOut = checkIn.toISOString().split('T')[0];
+                            }
                             updateForm({ hotels: next });
                           }}
                           className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
@@ -1262,6 +1269,11 @@ const BookingModal: React.FC<BookingModalProps> = ({
                         <input
                           type="date"
                           value={h.checkOut}
+                          min={h.checkIn ? (() => {
+                            const checkIn = new Date(h.checkIn);
+                            checkIn.setDate(checkIn.getDate() + 1);
+                            return checkIn.toISOString().split('T')[0];
+                          })() : undefined}
                           onChange={(e) => {
                             const next = [...(formData.hotels ?? [])];
                             next[idx] = { ...next[idx], checkOut: e.target.value };
@@ -1463,9 +1475,25 @@ const BookingModal: React.FC<BookingModalProps> = ({
                         <input
                           type="date"
                           value={leg.date}
+                          min={idx > 0 && formData.legs && formData.legs[idx - 1]?.date ? (() => {
+                            const prevLegDate = new Date(formData.legs[idx - 1].date);
+                            prevLegDate.setDate(prevLegDate.getDate() + 1);
+                            return prevLegDate.toISOString().split('T')[0];
+                          })() : undefined}
                           onChange={(e) => {
                             const next = [...(formData.legs ?? [])];
-                            next[idx] = { ...next[idx], date: e.target.value };
+                            const newDate = e.target.value;
+                            next[idx] = { ...next[idx], date: newDate };
+                            // If subsequent legs have dates that are before or equal to the new date, adjust them
+                            if (newDate) {
+                              for (let i = idx + 1; i < next.length; i++) {
+                                if (next[i].date && next[i].date <= newDate) {
+                                  const prevDate = new Date(newDate);
+                                  prevDate.setDate(prevDate.getDate() + 1);
+                                  next[i].date = prevDate.toISOString().split('T')[0];
+                                }
+                              }
+                            }
                             updateForm({ legs: next });
                           }}
                           className={`w-full px-3 py-2 border-b focus:outline-none transition-colors ${
