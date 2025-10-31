@@ -70,6 +70,7 @@ const SaleAgents: React.FC = () => {
   const {
     agents: contextAgents,
     fetchAgents,
+    bookings,
   } = useData();
 
   const [loading, setLoading] = useState(false);
@@ -113,16 +114,46 @@ const SaleAgents: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Merge performance into mapped agents
+  // Merge performance into mapped agents and add last booking
   const agents = useMemo<UiAgent[]>(() => {
     const list = (contextAgents || []).map(baseMapAgent);
+    const bookingsList = Array.isArray(bookings) ? bookings : [];
+    
     return list.map(a => {
       const p = perf[a.id];
-      return p
+      let updatedAgent = p
         ? { ...a, totalBookings: p.bookings, totalRevenue: p.profit } // Use profit as totalRevenue for display
         : a;
+      
+      // Find the last booking for this agent
+      const agentBookings = bookingsList
+        .filter((b: any) => {
+          const bAgentId = toId(b.agent) || toId(b.agentId);
+          return bAgentId === a.id;
+        })
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt || a.date || 0).getTime();
+          const dateB = new Date(b.createdAt || b.date || 0).getTime();
+          return dateB - dateA; // Sort descending (newest first)
+        });
+      
+      // Get the last booking (most recent)
+      const lastBooking = agentBookings[0];
+      if (lastBooking) {
+        const bookingAny = lastBooking as any; // Handle API data that may have different field names
+        updatedAgent = {
+          ...updatedAgent,
+          recentBookings: [{
+            id: toId(lastBooking) || '',
+            customer: bookingAny.customerName || bookingAny.customer || '—',
+            amount: Number(bookingAny.totalAmount ?? bookingAny.amount ?? 0) || 0,
+          }],
+        };
+      }
+      
+      return updatedAgent;
     });
-  }, [contextAgents, perf]);
+  }, [contextAgents, perf, bookings]);
 
   // ---- Create agent ----
   const handleCreateAgent = async (agentData: any) => {
@@ -146,11 +177,14 @@ const SaleAgents: React.FC = () => {
       // update performance too
       try {
         const { data } = await http.get('/api/agent/performance');
-        const p: Record<string, { bookings: number; revenue: number }> = {};
+        const p: Record<string, { bookings: number; profit: number }> = {};
         for (const r of data?.data ?? []) {
           const id = toId(r?._id);
           if (!id) continue;
-          p[id] = { bookings: Number(r?.bookings ?? 0) || 0, revenue: Number(r?.revenue ?? 0) || 0 };
+          p[id] = { 
+            bookings: Number(r?.bookings ?? 0) || 0, 
+            profit: Number(r?.profit ?? r?.revenue ?? 0) || 0 
+          };
         }
         setPerf(p);
       } catch {}
@@ -210,10 +244,6 @@ const SaleAgents: React.FC = () => {
     }
   };
 
-  const openEditModal = (agent: UiAgent) => {
-    setEditingAgent(agent);
-    setIsAgentModalOpen(true);
-  };
 
   const filteredAgents = useMemo(
     () =>
@@ -450,28 +480,24 @@ const SaleAgents: React.FC = () => {
                 </div>
               </div>
 
-              {/* Recent Bookings */}
+              {/* Last Booking */}
               <div>
                 <h4 className="text-xs sm:text-sm font-medium text-gray-900 mb-2">
-                  Recent Bookings
+                  Last Booking
                 </h4>
                 <div className="space-y-2">
-                  {agent.recentBookings.slice(0, 2).map((b, idx) => (
-                    <div
-                      key={b.id || idx}
-                      className="flex items-center justify-between text-xs sm:text-sm"
-                    >
+                  {agent.recentBookings.length > 0 ? (
+                    <div className="flex items-center justify-between text-xs sm:text-sm">
                       <span className="text-gray-600 truncate flex-1 mr-2">
-                        {b.customer}
+                        {agent.recentBookings[0].customer}
                       </span>
                       <span className="font-medium text-gray-900 whitespace-nowrap">
-                        ${b.amount.toLocaleString()}
+                        ${agent.recentBookings[0].amount.toLocaleString()}
                       </span>
                     </div>
-                  ))}
-                  {agent.recentBookings.length === 0 && (
+                  ) : (
                     <p className="text-xs sm:text-sm text-gray-400 italic">
-                      No recent bookings
+                      No bookings
                     </p>
                   )}
                 </div>

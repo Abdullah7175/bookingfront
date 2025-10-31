@@ -513,54 +513,6 @@ const Bookings: React.FC = () => {
   };
 
   // UPDATED: Download PDF with expanded data and v2 template; fallback to old /pdf
-  const handleDownloadPDF = async (bookingId: string) => {
-    try {
-      // Try to fetch a full/expanded booking (server should support this)
-      let full: any | null = null;
-      try {
-        const { data } = await http.get(`/api/bookings/${bookingId}?expand=all`);
-        full = data;
-      } catch {
-        // ignore; fallback to direct PDF call
-      }
-
-      // Prefer POSTing the full object to a v2 PDF route if available
-      if (full) {
-        try {
-          const response = await http.post(`/api/bookings/${bookingId}/pdf?v=2`, full, {
-            responseType: 'blob',
-          });
-          const url = window.URL.createObjectURL(new Blob([response.data]));
-          const link = document.createElement('a');
-          link.href = url;
-          link.setAttribute('download', `booking-${bookingId}.pdf`);
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          window.URL.revokeObjectURL(url);
-          return;
-        } catch {
-          // fall through to legacy
-        }
-      }
-
-      // Legacy fallback (your current flow)
-      const response = await http.get(`/api/bookings/${bookingId}/pdf`, {
-        responseType: 'blob',
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `booking-${bookingId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error: any) {
-      console.error('PDF download failed:', error);
-      alert('Failed to download PDF');
-    }
-  };
 
   // NEW: Client-side "Full PDF" that always contains all details (hotels[], visas[], legs[], costingRows[])
   const generateFullClientPDF = async (bookingId: string) => {
