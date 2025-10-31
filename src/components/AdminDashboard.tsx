@@ -208,22 +208,65 @@ const AdminDashboard: React.FC = () => {
   // Helper function to get agent ID from booking
   const getAgentIdFromBooking = (booking: any): string | null => {
     // Try multiple possible fields in order of preference
+    // The agent field can be:
+    // 1. A direct agentId field
+    // 2. An agent object with _id (populated)
+    // 3. An agent object with id
+    // 4. A string ObjectId (not populated)
+    // 5. An ObjectId object (Mongoose)
+    
+    // First check for direct agentId field
     if (booking.agentId) {
       const id = String(booking.agentId).trim();
-      return id || null;
+      if (id && id !== 'undefined' && id !== 'null') {
+        return id;
+      }
     }
-    if (booking.agent?._id) {
-      const id = String(booking.agent._id).trim();
-      return id || null;
+    
+    // Check if agent is an object with _id (populated User/Agent)
+    if (booking.agent && typeof booking.agent === 'object') {
+      if (booking.agent._id) {
+        const id = String(booking.agent._id).trim();
+        if (id && id !== 'undefined' && id !== 'null') {
+          return id;
+        }
+      }
+      if (booking.agent.id) {
+        const id = String(booking.agent.id).trim();
+        if (id && id !== 'undefined' && id !== 'null') {
+          return id;
+        }
+      }
     }
-    if (booking.agent?.id) {
-      const id = String(booking.agent.id).trim();
-      return id || null;
+    
+    // Check if agent is a string ObjectId (not populated)
+    if (booking.agent && typeof booking.agent === 'string') {
+      const id = booking.agent.trim();
+      if (id && id !== 'undefined' && id !== 'null') {
+        return id;
+      }
     }
+    
+    // Handle Mongoose ObjectId objects
+    if (booking.agent && booking.agent.toString) {
+      try {
+        const id = String(booking.agent.toString()).trim();
+        if (id && id !== 'undefined' && id !== 'null') {
+          return id;
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    // Last resort: convert to string
     if (booking.agent) {
       const id = String(booking.agent).trim();
-      return id || null;
+      if (id && id !== 'undefined' && id !== 'null' && id.length > 0) {
+        return id;
+      }
     }
+    
     return null;
   };
 
@@ -238,16 +281,21 @@ const AdminDashboard: React.FC = () => {
   const getAgentName = (agentId: string | null, bookingAgentName?: string): string => {
     if (!agentId) return 'Unassigned';
     
+    const normalizedAgentId = normalizeId(agentId);
+    if (!normalizedAgentId) return 'Unassigned';
+    
     // First try to find in agents list
     if (agents && agents.length > 0) {
       for (const agent of agents) {
         const agentIdNormalized = normalizeId(agent.id);
-        if (agentIdNormalized && (
-          agentIdNormalized === agentId ||
-          String(agentIdNormalized).toLowerCase() === String(agentId).toLowerCase() ||
-          String(agentIdNormalized).replace(/\s+/g, '') === String(agentId).replace(/\s+/g, '')
-        )) {
-          // Return agent name - show all agents including admin names properly
+        if (!agentIdNormalized) continue;
+        
+        // Try multiple matching strategies
+        const agentIdStr = String(agentIdNormalized).trim().toLowerCase();
+        const bookingAgentIdStr = String(normalizedAgentId).trim().toLowerCase();
+        
+        // Direct match
+        if (agentIdStr === bookingAgentIdStr) {
           const name = agent.name || '';
           if (name) {
             // If name contains admin/super, show as "Admin"
@@ -258,13 +306,37 @@ const AdminDashboard: React.FC = () => {
             return name;
           }
         }
+        
+        // Match without spaces
+        if (agentIdStr.replace(/\s+/g, '') === bookingAgentIdStr.replace(/\s+/g, '')) {
+          const name = agent.name || '';
+          if (name) {
+            if (name.toLowerCase().includes('admin') || name.toLowerCase().includes('super')) {
+              return 'Admin';
+            }
+            return name;
+          }
+        }
+        
+        // Match only the last part if IDs are similar (handle ObjectId string variations)
+        const agentIdLast12 = agentIdStr.slice(-12);
+        const bookingIdLast12 = bookingAgentIdStr.slice(-12);
+        if (agentIdLast12.length >= 8 && agentIdLast12 === bookingIdLast12) {
+          const name = agent.name || '';
+          if (name) {
+            if (name.toLowerCase().includes('admin') || name.toLowerCase().includes('super')) {
+              return 'Admin';
+            }
+            return name;
+          }
+        }
       }
     }
     
     // Fallback to booking agent name
     if (bookingAgentName) {
       const name = String(bookingAgentName).trim();
-      if (name) {
+      if (name && name.length > 0) {
         // If name contains admin/super, show as "Admin"
         if (name.toLowerCase().includes('admin') || name.toLowerCase().includes('super')) {
           return 'Admin';
@@ -277,9 +349,9 @@ const AdminDashboard: React.FC = () => {
     // Check if agentId matches current user (admin creating their own bookings)
     const currentUserId = (user as any)?._id || (user as any)?.id;
     if (currentUserId) {
-      const currentUserIdStr = String(currentUserId).trim();
-      if (currentUserIdStr === String(agentId).trim() || 
-          currentUserIdStr.toLowerCase() === String(agentId).toLowerCase()) {
+      const normalizedCurrentUserId = normalizeId(currentUserId);
+      const normalizedCurrentUserIdStr = normalizedCurrentUserId ? String(normalizedCurrentUserId).trim().toLowerCase() : '';
+      if (normalizedCurrentUserId && normalizedCurrentUserIdStr === String(normalizedAgentId).trim().toLowerCase()) {
         // Check if current user is admin
         const userRole = (user as any)?.role || '';
         if (userRole === 'admin' || String(userRole).toLowerCase().includes('admin') || String(userRole).toLowerCase().includes('super')) {
@@ -292,8 +364,12 @@ const AdminDashboard: React.FC = () => {
       }
     }
     
-    // Last resort: if we have an ID but no match, check if it might be admin
-    // Try to find in User model via API context - but for now, return Unknown Agent
+    // Last resort: return Unknown Agent (but log it for debugging)
+    console.warn('[AgentChart] Could not resolve agent name:', {
+      agentId: normalizedAgentId,
+      bookingAgentName: bookingAgentName,
+      availableAgentIds: agents?.map(a => normalizeId(a.id))
+    });
     return 'Unknown Agent';
   };
 
@@ -313,6 +389,17 @@ const AdminDashboard: React.FC = () => {
       const bookingAgentId = getAgentIdFromBooking(booking);
       const bookingAgentName = (booking as any)?.agentName || (booking as any)?.agent?.name || '';
       
+      // Debug logging for problematic bookings
+      if (!bookingAgentId && (booking as any)?.agent) {
+        console.log('[AgentChart] Booking without matched agentId:', {
+          bookingId: (booking as any)?.id || (booking as any)?._id,
+          agent: (booking as any)?.agent,
+          agentId: (booking as any)?.agentId,
+          agentName: bookingAgentName,
+          agentType: typeof (booking as any)?.agent
+        });
+      }
+      
       // Calculate profit and revenue
       const costingTotals = (booking as any)?.costing?.totals || (booking as any)?.pricing?.totals || {};
       const totalCost = costingTotals.totalCostPrice || costingTotals.totalCost || 0;
@@ -323,6 +410,17 @@ const AdminDashboard: React.FC = () => {
       if (bookingAgentId) {
         // Get agent name for this booking
         const agentName = getAgentName(bookingAgentId, bookingAgentName);
+        
+        // Debug logging for agent name resolution
+        if (agentName === 'Unknown Agent' || agentName === 'Unassigned') {
+          console.log('[AgentChart] Agent name resolution issue:', {
+            bookingId: (booking as any)?.id || (booking as any)?._id,
+            agentId: bookingAgentId,
+            resolvedName: agentName,
+            bookingAgentName: bookingAgentName,
+            availableAgents: agents?.map(a => ({ id: a.id, name: a.name }))
+          });
+        }
         
         if (!agentMetricsMap[agentName]) {
           agentMetricsMap[agentName] = { bookings: 0, profit: 0, revenue: 0 };
@@ -1389,17 +1487,17 @@ const AdminDashboard: React.FC = () => {
                 Revenue
               </button>
             </div>
-            <button
-              onClick={() => {
-                console.log('🔄 Manual refresh triggered');
-                fetchAgents();
+          <button
+            onClick={() => {
+              console.log('🔄 Manual refresh triggered');
+              fetchAgents();
                 fetchBookings();
-              }}
+            }}
               className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-            >
-              Refresh
-            </button>
-          </div>
+          >
+            Refresh
+          </button>
+        </div>
         </div>
         <div className="text-sm text-gray-500 mb-6">
           {dashboardPeriod === 'week' && 'Current Week'}
