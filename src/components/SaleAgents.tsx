@@ -75,8 +75,8 @@ const SaleAgents: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
 
-  // Performance map: agentId -> { bookings, revenue }
-  const [perf, setPerf] = useState<Record<string, { bookings: number; revenue: number }>>({});
+  // Performance map: agentId -> { bookings, profit }
+  const [perf, setPerf] = useState<Record<string, { bookings: number; profit: number }>>({});
 
   // Load agents from API (via context) + load performance
   useEffect(() => {
@@ -88,15 +88,15 @@ const SaleAgents: React.FC = () => {
         // then fetch performance (admin-only route)
         try {
           const { data } = await http.get('/api/agent/performance');
-          // expecting { ok: true, data: [{ _id: agentId, bookings, revenue }, ...] }
-          const p: Record<string, { bookings: number; revenue: number }> = {};
+          // expecting { ok: true, data: [{ _id: agentId, bookings, profit }, ...] }
+          const p: Record<string, { bookings: number; profit: number }> = {};
           const rows = data?.data ?? data ?? [];
           for (const r of rows) {
             const id = toId(r?._id);
             if (!id) continue;
             p[id] = {
               bookings: Number(r?.bookings ?? 0) || 0,
-              revenue: Number(r?.revenue ?? 0) || 0,
+              profit: Number(r?.profit ?? r?.revenue ?? 0) || 0, // Support both profit and revenue for backward compatibility
             };
           }
           setPerf(p);
@@ -119,7 +119,7 @@ const SaleAgents: React.FC = () => {
     return list.map(a => {
       const p = perf[a.id];
       return p
-        ? { ...a, totalBookings: p.bookings, totalRevenue: p.revenue }
+        ? { ...a, totalBookings: p.bookings, totalRevenue: p.profit } // Use profit as totalRevenue for display
         : a;
     });
   }, [contextAgents, perf]);
@@ -428,7 +428,7 @@ const SaleAgents: React.FC = () => {
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">
                     ${agent.totalRevenue.toLocaleString()}
                   </p>
-                  <p className="text-xs sm:text-sm text-gray-500">Revenue</p>
+                  <p className="text-xs sm:text-sm text-gray-500">Profit</p>
                 </div>
               </div>
 

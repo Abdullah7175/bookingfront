@@ -53,18 +53,19 @@ const mapAgent = (a: any): Agent => ({
 
 // Merge performance metrics into agent list
 const applyPerformance = (agents: Agent[], perfArr: any[]): Agent[] => {
-  const perfById: Record<string, { bookings: number; revenue: number }> = {};
+  const perfById: Record<string, { bookings: number; profit: number }> = {};
   for (const p of perfArr || []) {
     const id = idOf(p?._id) || idOf(p) || '';
     if (!id) continue;
     const bookings = Number(p?.bookings ?? p?.totalBookings ?? 0) || 0;
-    const revenue = Number(p?.revenue ?? p?.totalRevenue ?? 0) || 0;
-    perfById[id] = { bookings, revenue };
+    // Use profit if available, otherwise fall back to revenue for backward compatibility
+    const profit = Number(p?.profit ?? p?.revenue ?? p?.totalRevenue ?? 0) || 0;
+    perfById[id] = { bookings, profit };
   }
   return agents.map((a) => ({
     ...a,
     totalBookings: perfById[a.id]?.bookings ?? a.totalBookings ?? 0,
-    totalRevenue: perfById[a.id]?.revenue ?? a.totalRevenue ?? 0,
+    totalRevenue: perfById[a.id]?.profit ?? a.totalRevenue ?? 0, // Use profit as totalRevenue for display
   }));
 };
 
