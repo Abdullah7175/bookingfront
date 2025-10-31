@@ -68,6 +68,7 @@ const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLab
 
   // Chart dimensions with proper spacing
   const chartHeight = 280;
+  const topPadding = 35; // Space above chart for value labels
   const barWidth = Math.max(50, Math.min(100, Math.floor((600 - (data.length - 1) * 24) / data.length)));
   const bottomPadding = 80; // Extra space for rotated labels
 
@@ -91,9 +92,9 @@ const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLab
   return (
     <div className="w-full overflow-x-auto">
       {/* Vertical Bar Chart */}
-      <div className="relative" style={{ minHeight: chartHeight + bottomPadding, paddingLeft: `${yAxisWidth}px`, paddingRight: '20px' }}>
+      <div className="relative" style={{ minHeight: chartHeight + bottomPadding + topPadding, paddingLeft: `${yAxisWidth}px`, paddingRight: '20px', paddingTop: `${topPadding}px` }}>
         {/* Y-axis labels with proper spacing */}
-        <div className="absolute left-0 top-0 flex flex-col justify-between" style={{ width: `${yAxisWidth}px`, height: chartHeight }}>
+        <div className="absolute left-0 flex flex-col justify-between" style={{ width: `${yAxisWidth}px`, height: chartHeight, top: `${topPadding}px` }}>
           {[roundedMax, Math.round(roundedMax * 0.75), Math.round(roundedMax * 0.5), Math.round(roundedMax * 0.25), 0].map((value, idx) => (
             <span key={idx} className="text-xs text-gray-600 font-medium text-right pr-3">
               {formatYAxisLabel(value)}
@@ -102,10 +103,10 @@ const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLab
         </div>
 
         {/* Y-axis line */}
-        <div className="absolute top-0 bottom-0 border-l-2 border-gray-300" style={{ height: chartHeight, left: `${yAxisWidth - 2}px` }} />
+        <div className="absolute border-l-2 border-gray-300" style={{ height: chartHeight, left: `${yAxisWidth - 2}px`, top: `${topPadding}px` }} />
 
         {/* Chart area */}
-        <div className="relative" style={{ height: chartHeight, minWidth: data.length * (barWidth + 24), marginLeft: `${chartLeftMargin}px` }}>
+        <div className="relative" style={{ height: chartHeight, minWidth: data.length * (barWidth + 24), marginLeft: `${chartLeftMargin}px`, marginTop: `${topPadding}px` }}>
           {/* Y-axis grid lines */}
           {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => (
             <div
@@ -130,7 +131,7 @@ const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLab
                 >
                   {/* Value on top of bar */}
                   {barHeight > 30 && (
-                    <div className="absolute -top-7 left-1/2 transform -translate-x-1/2 whitespace-nowrap z-10">
+                    <div className="absolute left-1/2 transform -translate-x-1/2 whitespace-nowrap z-20" style={{ top: '-28px' }}>
                       <span className="text-xs font-bold text-gray-800 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-200">
                         {formatValue(item.value)}
                       </span>
@@ -158,7 +159,7 @@ const BarChart: React.FC<BarChartProps> = ({ data, isCurrency = false, metricLab
 
                   {/* Value below bar if bar is too small */}
                   {barHeight <= 30 && barHeight > 0 && (
-                    <div className="absolute -top-7 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+                    <div className="absolute left-1/2 transform -translate-x-1/2 whitespace-nowrap z-20" style={{ top: '-28px' }}>
                       <span className="text-xs font-bold text-gray-800 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-200">
                         {formatValue(item.value)}
                       </span>
