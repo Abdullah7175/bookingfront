@@ -139,6 +139,7 @@ const AdminDashboard: React.FC = () => {
   // Build a map of agent ID -> bookings count for better matching
   // Use a more flexible key that handles different ID formats
   const agentBookingsMap: Record<string, number> = {};
+  let unassignedBookings = 0;
   
   filteredBookings.forEach(booking => {
     const bookingAgentId = getAgentIdFromBooking(booking);
@@ -152,97 +153,90 @@ const AdminDashboard: React.FC = () => {
         }
       }
     } else {
-      // Debug: log bookings without agent IDs
-      console.warn('[AdminDashboard] Booking without agent ID:', booking.id, booking);
+      // Count bookings without agent IDs as "Unassigned"
+      unassignedBookings++;
     }
   });
 
-  // Debug: log the mapping
-  if (filteredBookings.length > 0) {
-    console.log('[AdminDashboard] Filtered bookings count:', filteredBookings.length);
-    console.log('[AdminDashboard] Agent bookings map:', agentBookingsMap);
-    console.log('[AdminDashboard] Agents:', agents.map(a => ({ id: a.id, name: a.name })));
-    console.log('[AdminDashboard] Agent bookings map keys:', Object.keys(agentBookingsMap));
-    console.log('[AdminDashboard] Agent IDs from agents array:', agents.map(a => normalizeId(a.id)));
-  }
-
   // Calculate performance data for each agent
   const agentPerformanceData = React.useMemo(() => {
-    if (!agents || agents.length === 0) {
-      console.log('[AdminDashboard] No agents available for performance calculation');
-      return [];
+    const result: Array<{ name: string; value: number; color: string }> = [];
+    
+    // Process known agents
+    if (agents && agents.length > 0) {
+      agents.forEach((agent, index) => {
+        const agentId = normalizeId(agent.id);
+        if (!agentId) {
+          return;
+        }
+
+        // Try multiple matching strategies
+        let agentBookings = agentBookingsMap[agentId] || 0;
+        
+        // If no exact match, try all variations
+        if (agentBookings === 0) {
+          Object.keys(agentBookingsMap).forEach(bookingAgentId => {
+            // Direct match
+            if (bookingAgentId === agentId) {
+              agentBookings = agentBookingsMap[bookingAgentId];
+            }
+            // Exact match after normalization
+            else {
+              const normalizedBookingId = normalizeId(bookingAgentId);
+              if (normalizedBookingId === agentId) {
+                agentBookings = agentBookingsMap[bookingAgentId];
+              }
+              // Case-insensitive match
+              else if (String(bookingAgentId).toLowerCase() === String(agentId).toLowerCase()) {
+                agentBookings = agentBookingsMap[bookingAgentId];
+              }
+            }
+          });
+        }
+
+        // Only add agents with bookings
+        if (agentBookings > 0) {
+          result.push({
+            name: agent.name || `Agent ${index + 1}`,
+            value: agentBookings,
+            color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
+          });
+        }
+      });
     }
 
-    if (Object.keys(agentBookingsMap).length === 0) {
-      console.log('[AdminDashboard] No agent bookings in map');
-      return [];
+    // Handle bookings with agent IDs that don't match any known agents
+    const knownAgentIds = new Set(agents.map(a => normalizeId(a.id)).filter((id): id is string => Boolean(id)));
+    Object.keys(agentBookingsMap).forEach(bookingAgentId => {
+      const normalizedBookingId = normalizeId(bookingAgentId);
+      // If this agent ID from bookings doesn't match any known agent, create an entry for it
+      if (normalizedBookingId && !knownAgentIds.has(normalizedBookingId) && !knownAgentIds.has(bookingAgentId)) {
+        // Check if we already added this agent (might have multiple variations)
+        const alreadyAdded = result.some(item => 
+          item.name.includes(bookingAgentId) || (normalizedBookingId && item.name.includes(normalizedBookingId))
+        );
+        if (!alreadyAdded) {
+          result.push({
+            name: `Agent (${bookingAgentId.slice(-6)})`, // Show last 6 chars of ID
+            value: agentBookingsMap[bookingAgentId],
+            color: '#9CA3AF' // Gray color for unknown agents
+          });
+        }
+      }
+    });
+
+    // Add unassigned bookings if any
+    if (unassignedBookings > 0) {
+      result.push({
+        name: 'Unassigned',
+        value: unassignedBookings,
+        color: '#D1D5DB' // Light gray for unassigned
+      });
     }
 
-    const result = agents.map((agent, index) => {
-      const agentId = normalizeId(agent.id);
-      if (!agentId) {
-        console.warn('[AdminDashboard] Agent has no ID:', agent);
-        return null;
-      }
-
-      console.log(`[AdminDashboard] Checking agent: ${agent.name}, ID: ${agentId}, Type: ${typeof agentId}`);
-
-      // Try multiple matching strategies
-      let agentBookings = agentBookingsMap[agentId] || 0;
-      
-      // If no exact match, try all variations
-      if (agentBookings === 0) {
-        // Check all keys in the map for potential matches
-        Object.keys(agentBookingsMap).forEach(bookingAgentId => {
-          console.log(`[AdminDashboard] Comparing: agentId="${agentId}" (type: ${typeof agentId}) vs bookingAgentId="${bookingAgentId}" (type: ${typeof bookingAgentId})`);
-          
-          // Direct match first
-          if (bookingAgentId === agentId) {
-            agentBookings = agentBookingsMap[bookingAgentId];
-            console.log(`[AdminDashboard] ✓ Direct match found for ${agent.name}`);
-          }
-          // Exact match after normalization
-          else {
-            const normalizedBookingId = normalizeId(bookingAgentId);
-            if (normalizedBookingId === agentId) {
-              agentBookings = agentBookingsMap[bookingAgentId];
-              console.log(`[AdminDashboard] ✓ Normalized match found for ${agent.name}`);
-            }
-            // Case-insensitive match
-            else if (String(bookingAgentId).toLowerCase() === String(agentId).toLowerCase()) {
-              agentBookings = agentBookingsMap[bookingAgentId];
-              console.log(`[AdminDashboard] ✓ Case-insensitive match found for ${agent.name}`);
-            }
-            // Try matching after removing any whitespace or special characters
-            else if (String(bookingAgentId).replace(/\s+/g, '') === String(agentId).replace(/\s+/g, '')) {
-              agentBookings = agentBookingsMap[bookingAgentId];
-              console.log(`[AdminDashboard] ✓ Whitespace-normalized match found for ${agent.name}`);
-            }
-          }
-        });
-      } else {
-        console.log(`[AdminDashboard] ✓ Found direct match for agent ${agent.name} (${agentId}): ${agentBookings} bookings`);
-      }
-
-      // Only return agents with bookings
-      if (agentBookings === 0) {
-        console.log(`[AdminDashboard] ✗ No bookings found for agent ${agent.name} (${agentId})`);
-        return null;
-      }
-      
-      return {
-        name: agent.name || `Agent ${index + 1}`,
-        value: agentBookings, // Use actual booking count for bar chart
-        color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
-      };
-    }).filter((item): item is { name: string; value: number; color: string } => 
-      item !== null && item.value > 0
-    );
-
-    console.log('[AdminDashboard] Final agentPerformanceData:', result);
-    console.log('[AdminDashboard] Result length:', result.length);
-    return result;
-  }, [agents, filteredBookings, agentBookingsMap]);
+    // Sort by booking count (descending)
+    return result.sort((a, b) => b.value - a.value);
+  }, [agents, filteredBookings, agentBookingsMap, unassignedBookings]);
 
 
   const handleApproveBooking = async (bookingId: string) => {
