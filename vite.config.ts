@@ -19,6 +19,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    allowedHosts: ['miqattravels.com','https://miqattravels.com','www.miqattravels.com'],
+    allowedHosts: ['miqattravels.com', 'www.miqattravels.com'],
+    hmr: {
+      overlay: false, // Disable error overlay to prevent blocking
+    },
+    // Handle malformed URIs gracefully
+    middlewareMode: false,
   },
 });

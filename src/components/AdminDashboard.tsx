@@ -18,9 +18,8 @@ import {
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const { bookings, inquiries, agents, approveChange, rejectChange, fetchAgents, fetchBookings, fetchInquiries } = useData();
-  const [chartPeriod, setChartPeriod] = React.useState<'week' | 'month' | 'year'>('year');
   const [chartType, setChartType] = React.useState<'bookings' | 'profit' | 'revenue'>('bookings');
-  const [dashboardPeriod, setDashboardPeriod] = React.useState<'week' | 'month' | 'year'>('month');
+  const [dashboardPeriod, setDashboardPeriod] = React.useState<'week' | 'month' | 'year'>('year');
 
   // Refresh data on mount
   React.useEffect(() => {
@@ -174,30 +173,14 @@ const AdminDashboard: React.FC = () => {
     },
   ];
 
-  // Helper function to normalize agent ID - handles various formats
-  const normalizeId = (id: any): string | null => {
-    if (!id) return null;
-    // Handle ObjectId or string - convert to string and trim
-    const idStr = String(id).trim();
-    return idStr || null;
-  };
 
-  // Helper function to normalize agent ID from booking
-  const getAgentIdFromBooking = (booking: any): string | null => {
-    // Try multiple possible fields in order of preference
-    if (booking.agentId) return normalizeId(booking.agentId);
-    if (booking.agent?._id) return normalizeId(booking.agent._id);
-    if (booking.agent?.id) return normalizeId(booking.agent.id);
-    if (booking.agent) return normalizeId(booking.agent);
-    return null;
-  };
 
-  // Filter bookings based on selected period
+  // Filter bookings based on dashboard period
   const getFilteredBookings = () => {
     const now = new Date();
     let startDate: Date;
 
-    switch (chartPeriod) {
+    switch (dashboardPeriod) {
       case 'week':
         startDate = new Date(now);
         startDate.setDate(now.getDate() - 7);
@@ -218,226 +201,157 @@ const AdminDashboard: React.FC = () => {
     });
   };
 
-  // Calculate real-time agent performance
+  // Calculate real-time booking performance grouped by dates
   const filteredBookings = getFilteredBookings();
-  
-  // Build maps of agent ID -> metrics for better matching
-  // Use a more flexible key that handles different ID formats
-  // Also create a map to store agent names from bookings for better identification
-  const agentMetricsMap: Record<string, { bookings: number; profit: number; revenue: number; agentName?: string }> = {};
-  let unassignedMetrics = { bookings: 0, profit: 0, revenue: 0 };
-  
-  filteredBookings.forEach(booking => {
-    const bookingAgentId = getAgentIdFromBooking(booking);
-    const bookingAgentName = (booking as any)?.agentName || (booking as any)?.agent?.name || '';
-    
-    // Calculate profit and revenue for this booking
-    const costingTotals = (booking as any)?.costing?.totals || (booking as any)?.pricing?.totals || {};
-    const totalCost = costingTotals.totalCostPrice || costingTotals.totalCost || 0;
-    const totalSale = costingTotals.totalSalePrice || costingTotals.totalSale || (booking as any)?.totalAmount || (booking as any)?.amount || 0;
-    const profit = costingTotals.profit ?? (totalSale - totalCost);
-    const revenue = totalSale;
-    
-    if (bookingAgentId) {
-      const normalizedId = normalizeId(bookingAgentId);
-      if (normalizedId) {
-        // Initialize if doesn't exist
-        if (!agentMetricsMap[normalizedId]) {
-          agentMetricsMap[normalizedId] = { bookings: 0, profit: 0, revenue: 0, agentName: bookingAgentName || undefined };
-        }
-        
-        // Increment metrics
-        agentMetricsMap[normalizedId].bookings += 1;
-        agentMetricsMap[normalizedId].profit += profit;
-        agentMetricsMap[normalizedId].revenue += revenue;
-        
-        // Update agent name if we have one and don't have one stored
-        if (bookingAgentName && !agentMetricsMap[normalizedId].agentName) {
-          agentMetricsMap[normalizedId].agentName = bookingAgentName;
-        }
-        
-        // Also store the original ID as a variation (if different) for matching purposes
-        if (bookingAgentId !== normalizedId) {
-          if (!agentMetricsMap[bookingAgentId]) {
-            agentMetricsMap[bookingAgentId] = { bookings: 0, profit: 0, revenue: 0, agentName: bookingAgentName || undefined };
-          }
-          agentMetricsMap[bookingAgentId].bookings += 1;
-          agentMetricsMap[bookingAgentId].profit += profit;
-          agentMetricsMap[bookingAgentId].revenue += revenue;
-          if (bookingAgentName && !agentMetricsMap[bookingAgentId].agentName) {
-            agentMetricsMap[bookingAgentId].agentName = bookingAgentName;
-          }
-        }
-      }
-    } else {
-      // Count bookings without agent IDs as "Unassigned"
-      unassignedMetrics.bookings += 1;
-      unassignedMetrics.profit += profit;
-      unassignedMetrics.revenue += revenue;
-    }
-  });
 
-  // Calculate performance data for each agent based on selected chart type
+  // Helper function to format date labels based on period
+  const formatDateLabel = (date: Date, period: 'week' | 'month' | 'year'): string => {
+    if (period === 'week') {
+      // Show day name and date (e.g., "Mon, Jan 1")
+      return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    } else if (period === 'month') {
+      // Show day number (e.g., "1", "2", "31")
+      return date.getDate().toString();
+    } else {
+      // Show month name (e.g., "Jan", "Feb", "Mar")
+      return date.toLocaleDateString('en-US', { month: 'short' });
+    }
+  };
+
+  // Calculate performance data grouped by dates based on selected period
   const agentPerformanceData = React.useMemo(() => {
     const result: Array<{ name: string; value: number; color: string }> = [];
     
-    // Create a comprehensive set of all possible agent ID variations
-    const knownAgentIdSet = new Set<string>();
-    const agentIdToNameMap = new Map<string, string>();
-    
-    if (agents && agents.length > 0) {
-      agents.forEach((agent) => {
-        const agentId = normalizeId(agent.id);
-        if (agentId) {
-          knownAgentIdSet.add(agentId);
-          knownAgentIdSet.add(agentId.toLowerCase());
-          agentIdToNameMap.set(agentId, agent.name || 'Unknown Agent');
-          agentIdToNameMap.set(agentId.toLowerCase(), agent.name || 'Unknown Agent');
-        }
-      });
+    if (filteredBookings.length === 0) {
+      return result;
     }
-    
-    // Process known agents and match their metrics
-    if (agents && agents.length > 0) {
-      agents.forEach((agent, index) => {
-        const agentId = normalizeId(agent.id);
-        if (!agentId) {
-          return;
-        }
 
-        // Try to find metrics for this agent by checking all variations
-        let agentMetrics: { bookings: number; profit: number; revenue: number; agentName?: string } = { bookings: 0, profit: 0, revenue: 0 };
-        let foundMatch = false;
-        
-        // First try exact match
-        if (agentMetricsMap[agentId]) {
-          agentMetrics = agentMetricsMap[agentId];
-          foundMatch = true;
+    // Create date buckets based on period
+    const now = new Date();
+    let dateBuckets: Date[] = [];
+    let startDate: Date;
+
+    if (dashboardPeriod === 'week') {
+      // 7 days: today and 6 days before
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(now.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        dateBuckets.push(date);
+      }
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+    } else if (dashboardPeriod === 'month') {
+      // Days of current month
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+      
+      for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(currentYear, currentMonth, day);
+        dateBuckets.push(date);
+      }
+      startDate = new Date(currentYear, currentMonth, 1);
+    } else {
+      // 12 months of the year
+      for (let month = 0; month < 12; month++) {
+        const date = new Date(now.getFullYear(), month, 1);
+        dateBuckets.push(date);
+      }
+      startDate = new Date(now.getFullYear(), 0, 1);
+    }
+
+    // Group bookings by date buckets
+    const dateMetricsMap: Record<string, { bookings: number; profit: number; revenue: number }> = {};
+    
+    // Initialize all date buckets with zeros
+    dateBuckets.forEach(date => {
+      const key = dashboardPeriod === 'week' 
+        ? date.toISOString().split('T')[0] // Full date for weekly
+        : dashboardPeriod === 'month'
+        ? date.getDate().toString() // Day number for monthly
+        : date.getMonth().toString(); // Month index for yearly
+      
+      dateMetricsMap[key] = { bookings: 0, profit: 0, revenue: 0 };
+    });
+
+    // Aggregate bookings into date buckets
+    filteredBookings.forEach(booking => {
+      const bookingDate = new Date(booking.createdAt || (booking as any).date || 0);
+      
+      // Calculate profit and revenue
+      const costingTotals = (booking as any)?.costing?.totals || (booking as any)?.pricing?.totals || {};
+      const totalCost = costingTotals.totalCostPrice || costingTotals.totalCost || 0;
+      const totalSale = costingTotals.totalSalePrice || costingTotals.totalSale || (booking as any)?.totalAmount || (booking as any)?.amount || 0;
+      const profit = costingTotals.profit ?? (totalSale - totalCost);
+      const revenue = totalSale;
+
+      let bucketKey: string;
+      
+      if (dashboardPeriod === 'week') {
+        // Match to specific day
+        const dayStart = new Date(bookingDate);
+        dayStart.setHours(0, 0, 0, 0);
+        bucketKey = dayStart.toISOString().split('T')[0];
+      } else if (dashboardPeriod === 'month') {
+        // Match to day of month (only if in current month)
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        if (bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear) {
+          bucketKey = bookingDate.getDate().toString();
         } else {
-          // Try all variations in the map
-          Object.keys(agentMetricsMap).forEach(bookingAgentId => {
-            if (foundMatch) return; // Already found a match
-            
-            const normalizedBookingId = normalizeId(bookingAgentId);
-            if (normalizedBookingId === agentId || bookingAgentId === agentId) {
-              agentMetrics = agentMetricsMap[bookingAgentId];
-              foundMatch = true;
-            } else if (normalizedBookingId && normalizedBookingId.toLowerCase() === agentId.toLowerCase()) {
-              agentMetrics = agentMetricsMap[bookingAgentId];
-              foundMatch = true;
-            }
-          });
+          return; // Skip bookings not in current month
         }
-
-        // Get value based on chart type
-        let value = 0;
-        if (chartType === 'bookings') {
-          value = agentMetrics.bookings;
-        } else if (chartType === 'profit') {
-          value = agentMetrics.profit;
-        } else if (chartType === 'revenue') {
-          value = agentMetrics.revenue;
+      } else {
+        // Match to month (only if in current year)
+        const currentYear = now.getFullYear();
+        if (bookingDate.getFullYear() === currentYear) {
+          bucketKey = bookingDate.getMonth().toString();
+        } else {
+          return; // Skip bookings not in current year
         }
-
-        // Only add agents with data
-        // Skip if the agent name contains "admin" or "super" - we only want actual agents
-        if (value > 0) {
-          const displayName = agent.name || agentMetrics.agentName || `Agent ${index + 1}`;
-          
-          // Only show agent names, filter out admin/super admin
-          if (displayName && !displayName.toLowerCase().includes('admin') && !displayName.toLowerCase().includes('super')) {
-            result.push({
-              name: displayName,
-              value: value,
-              color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
-            });
-          }
-        }
-      });
-    }
-
-    // Handle bookings with agent IDs that don't match any known agents
-    // Check if we've already processed all agent IDs from the map
-    const processedIds = new Set<string>();
-    Object.keys(agentMetricsMap).forEach(bookingAgentId => {
-      const normalizedBookingId = normalizeId(bookingAgentId);
-      
-      // Skip if already processed or if it matches a known agent
-      if (processedIds.has(bookingAgentId) || processedIds.has(normalizedBookingId || '')) {
-        return;
       }
-      
-      // Try to match against all known agents more thoroughly
-      let isKnownAgent = false;
-      
-      if (normalizedBookingId && agents && agents.length > 0) {
-        // Check if this ID matches any agent
-        agents.forEach(agent => {
-          const agentId = normalizeId(agent.id);
-          if (agentId && (
-            normalizedBookingId === agentId ||
-            bookingAgentId === agentId ||
-            normalizedBookingId.toLowerCase() === agentId.toLowerCase() ||
-            bookingAgentId.toLowerCase() === agentId.toLowerCase()
-          )) {
-            isKnownAgent = true;
-          }
-        });
-      }
-      
-      if (!isKnownAgent) {
-        const metrics = agentMetricsMap[bookingAgentId];
-        let value = 0;
-        if (chartType === 'bookings') {
-          value = metrics.bookings;
-        } else if (chartType === 'profit') {
-          value = metrics.profit;
-        } else if (chartType === 'revenue') {
-          value = metrics.revenue;
-        }
-        
-        if (value > 0) {
-          // Only use agent name from booking data, never show "Admin" or "Super Admin"
-          const displayName = metrics.agentName || 'Unknown Agent';
-          
-          // Only add if it's not a generic admin label
-          if (displayName && !displayName.toLowerCase().includes('admin') && !displayName.toLowerCase().includes('super')) {
-            result.push({
-              name: displayName,
-              value: value,
-              color: '#9CA3AF' // Gray color for unknown agents
-            });
-            processedIds.add(bookingAgentId);
-            if (normalizedBookingId) {
-              processedIds.add(normalizedBookingId);
-            }
-          }
-        }
+
+      if (dateMetricsMap[bucketKey]) {
+        dateMetricsMap[bucketKey].bookings += 1;
+        dateMetricsMap[bucketKey].profit += profit;
+        dateMetricsMap[bucketKey].revenue += revenue;
       }
     });
 
-    // Add unassigned if any - only show "Unassigned", never "Admin"
-    let unassignedValue = 0;
-    if (chartType === 'bookings') {
-      unassignedValue = unassignedMetrics.bookings;
-    } else if (chartType === 'profit') {
-      unassignedValue = unassignedMetrics.profit;
-    } else if (chartType === 'revenue') {
-      unassignedValue = unassignedMetrics.revenue;
-    }
+    // Convert to chart data format
+    const colors = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
     
-    // Only show "Unassigned" for bookings that truly have no agent ID
-    if (unassignedValue > 0) {
-      result.push({
-        name: 'Unassigned',
-        value: unassignedValue,
-        color: '#D1D5DB' // Light gray for unassigned
-      });
-    }
+    dateBuckets.forEach((date, index) => {
+      const key = dashboardPeriod === 'week' 
+        ? date.toISOString().split('T')[0]
+        : dashboardPeriod === 'month'
+        ? date.getDate().toString()
+        : date.getMonth().toString();
+      
+      const metrics = dateMetricsMap[key] || { bookings: 0, profit: 0, revenue: 0 };
+      
+      let value = 0;
+      if (chartType === 'bookings') {
+        value = metrics.bookings;
+      } else if (chartType === 'profit') {
+        value = metrics.profit;
+      } else if (chartType === 'revenue') {
+        value = metrics.revenue;
+      }
 
-    // Sort by value (descending)
-    return result.sort((a, b) => b.value - a.value);
-  }, [agents, filteredBookings, agentMetricsMap, unassignedMetrics, chartType, user]);
+      const label = formatDateLabel(date, dashboardPeriod);
+      
+      result.push({
+        name: label,
+        value: value,
+        color: colors[index % colors.length]
+      });
+    });
+
+    return result;
+  }, [filteredBookings, dashboardPeriod, chartType]);
 
 
   const handleApproveBooking = async (bookingId: string) => {
@@ -1254,9 +1168,9 @@ const AdminDashboard: React.FC = () => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-4">
           <h3 className="text-lg font-semibold text-gray-900">
-            {chartType === 'bookings' && 'Bookings by Agents'}
-            {chartType === 'profit' && 'Profit by Agents'}
-            {chartType === 'revenue' && 'Revenue by Agents'}
+            {chartType === 'bookings' && 'Bookings Over Time'}
+            {chartType === 'profit' && 'Profit Over Time'}
+            {chartType === 'revenue' && 'Revenue Over Time'}
           </h3>
           <div className="flex flex-wrap items-center gap-2">
             {/* Chart Type selector */}
@@ -1292,39 +1206,6 @@ const AdminDashboard: React.FC = () => {
                 Revenue
               </button>
             </div>
-            {/* Period selector */}
-            <div className="flex rounded-lg border border-gray-300 overflow-hidden">
-              <button
-                onClick={() => setChartPeriod('week')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  chartPeriod === 'week'
-                    ? 'bg-green-500 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Week
-              </button>
-              <button
-                onClick={() => setChartPeriod('month')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
-                  chartPeriod === 'month'
-                    ? 'bg-green-500 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Month
-              </button>
-              <button
-                onClick={() => setChartPeriod('year')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-300 ${
-                  chartPeriod === 'year'
-                    ? 'bg-green-500 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Year
-              </button>
-            </div>
             <button
               onClick={() => {
                 console.log('🔄 Manual refresh triggered');
@@ -1338,13 +1219,13 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
         <div className="text-sm text-gray-500 mb-6">
-          {chartPeriod === 'week' && 'Current Week'}
-          {chartPeriod === 'month' && 'Current Month'}
-          {chartPeriod === 'year' && 'Current Year'}
+          {dashboardPeriod === 'week' && 'Current Week'}
+          {dashboardPeriod === 'month' && 'Current Month'}
+          {dashboardPeriod === 'year' && 'Current Year'}
           {' - '}
           {chartType === 'bookings' && `${filteredBookings.length} booking${filteredBookings.length !== 1 ? 's' : ''}`}
-          {chartType === 'profit' && `Showing profit amounts`}
-          {chartType === 'revenue' && `Showing revenue amounts`}
+          {chartType === 'profit' && `Total profit: $${agentPerformanceData.reduce((sum, item) => sum + item.value, 0).toLocaleString()}`}
+          {chartType === 'revenue' && `Total revenue: $${agentPerformanceData.reduce((sum, item) => sum + item.value, 0).toLocaleString()}`}
         </div>
         {agentPerformanceData.length > 0 ? (
           <BarChart 
@@ -1363,7 +1244,7 @@ const AdminDashboard: React.FC = () => {
               </div>
             ) : filteredBookings.length === 0 ? (
               <div>
-                <p>No booking data available for {chartPeriod === 'week' ? 'current week' : chartPeriod === 'month' ? 'current month' : 'current year'}</p>
+                <p>No booking data available for {dashboardPeriod === 'week' ? 'current week' : dashboardPeriod === 'month' ? 'current month' : 'current year'}</p>
                 <p className="text-sm mt-2">Try selecting a different time period</p>
               </div>
             ) : (
