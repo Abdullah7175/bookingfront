@@ -2,10 +2,25 @@
 import axios, { InternalAxiosRequestConfig } from "axios";
 
 /** ---------- Config ---------- **/
+// Helper to normalize hostname to always include www if it's a root domain
+const normalizeHostname = (hostname: string): string => {
+  // If hostname is mtumrah.com, return www.mtumrah.com
+  if (hostname === 'mtumrah.com') {
+    return 'www.mtumrah.com';
+  }
+  // If hostname already has www or is localhost, return as is
+  if (hostname.includes('www.') || hostname === 'localhost' || hostname.includes('localhost:')) {
+    return hostname;
+  }
+  // For other domains without www, add www (optional - can be removed if not needed)
+  // For now, only handle mtumrah.com specifically
+  return hostname;
+};
+
 const API_BASE =
 import.meta.env.VITE_API_BASE || 
 (typeof window !== "undefined" 
-  ? `${window.location.protocol}//${window.location.hostname}`
+  ? `${window.location.protocol}//${normalizeHostname(window.location.hostname)}`
   : "https://localhost:7000");
 
 const isDev = import.meta.env.DEV === true;

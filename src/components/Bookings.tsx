@@ -567,6 +567,9 @@ const Bookings: React.FC = () => {
     try {
       // fetch the freshest single booking
       const { data } = await http.get(`/api/bookings/${bookingId}`);
+      if (!data) {
+        throw new Error('No booking data received');
+      }
       const full = normalizeForPdf(data);
 
       // lazy import for performance and TS ESM/CJS compat
@@ -1173,9 +1176,14 @@ const Bookings: React.FC = () => {
       addFooter();
 
       doc.save(`MARWAH-Booking-${full.id}.pdf`);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Full PDF failed', e);
-      alert('Failed to generate full PDF');
+      const errorMessage = e?.response?.data?.message || e?.message || 'Failed to generate full PDF';
+      if (e?.response?.status === 403) {
+        alert('You do not have permission to generate this PDF. Only the booking owner or admin can generate PDFs.');
+      } else {
+        alert(`Failed to generate full PDF: ${errorMessage}`);
+      }
     }
   };
 
@@ -1184,6 +1192,9 @@ const Bookings: React.FC = () => {
     try {
       // Fetch the booking data
       const { data } = await http.get(`/api/bookings/${bookingId}`);
+      if (!data) {
+        throw new Error('No booking data received');
+      }
       
       // Lazy import jsPDF
       const jsPDFMod = await import('jspdf');
@@ -1447,9 +1458,14 @@ const Bookings: React.FC = () => {
 
       // Save the PDF
       doc.save(`MARWAH-Invoice-${invoiceNo}.pdf`);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Invoice generation failed', e);
-      alert('Failed to generate invoice PDF');
+      const errorMessage = e?.response?.data?.message || e?.message || 'Failed to generate invoice PDF';
+      if (e?.response?.status === 403) {
+        alert('You do not have permission to generate this invoice. Only the booking owner or admin can generate invoices.');
+      } else {
+        alert(`Failed to generate invoice PDF: ${errorMessage}`);
+      }
     }
   };
 
@@ -1920,13 +1936,13 @@ const Bookings: React.FC = () => {
                     </button>
 
                     {/* 2) Server PDF (legacy/fallback) */}
-                    <button
+                    {/*<button
                       onClick={() => handleDownloadPDF(booking.id)}
                       className="px-3 py-2 text-xs sm:text-sm font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors flex items-center justify-center space-x-1"
                     >
                       <Download className="h-3 w-3 sm:h-4 sm:w-4" />
                       <span>PDF</span>
-                    </button>
+                    </button>*/}
 
                     {/* 3) Full PDF (client, includes arrays/tables) */}
                     <button
