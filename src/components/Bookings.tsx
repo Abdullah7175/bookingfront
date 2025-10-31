@@ -1123,6 +1123,73 @@ const Bookings: React.FC = () => {
       const noticeText = 'Please ensure all travel documents are valid for at least 6 months. Arrive at the airport 3 hours before departure. Contact your agent for any changes or cancellations.';
       const splitNotice = doc.splitTextToSize(noticeText, contentWidth - 30);
       doc.text(splitNotice, margin + 15, y + 30);
+      y += 70;
+
+      // ============= TERMS AND CONDITIONS SECTION =============
+      checkPageBreak(100);
+      y = drawSectionHeader('TERMS AND CONDITIONS', y);
+      
+      // Helper function to add terms text
+      const addTermsText = (text: string, isBold: boolean = false, isSubHeader: boolean = false) => {
+        checkPageBreak(30);
+        
+        if (isSubHeader) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+          doc.text(text, margin + 15, y);
+          y += 20;
+          doc.setFontSize(9);
+          doc.setTextColor(0, 0, 0);
+          return;
+        }
+        
+        if (isBold) {
+          doc.setFont('helvetica', 'bold');
+        } else {
+          doc.setFont('helvetica', 'normal');
+        }
+        
+        doc.setFontSize(9);
+        const lines = doc.splitTextToSize(text, contentWidth - 30);
+        doc.text(lines, margin + 15, y);
+        y += (lines.length * 14) + 6;
+      };
+
+      // Flight Policies
+      addTermsText('FLIGHT POLICIES', false, true);
+      addTermsText('• Cancellation / Refund / Date Change: An estimated penalty of $250 or more from the airline as per their policy + $100 service fee per person from the company.');
+      addTermsText('• Flights can be Cancelled / Changed without any fee within 24 hours time span.');
+      addTermsText('• Change of flight can only be done with same airline.');
+      addTermsText('• Airline is responsible for the schedule change or layover time change.');
+      addTermsText('• In case of a no show all the round trip will be cancelled by the airline and there will be no refund.');
+      
+      // Land Package Policies
+      addTermsText('LAND PACKAGE POLICIES', false, true);
+      addTermsText('• Land package cancellations must be informed at least one week before travel; otherwise, a 50% charge applies (except for December and Ramadan bookings).');
+      addTermsText('• If an HCN is issued at the time of booking, no refund will be provided for that particular hotel, including hotels outside of Makkah and Madinah.');
+      addTermsText('• Full amount will be refunded in case of any emergency.');
+      
+      // Visa Policies
+      addTermsText('VISA POLICIES', false, true);
+      addTermsText('• No Visa amount will be refunded if the visa is issued.');
+      
+      // Transportation Policies
+      addTermsText('TRANSPORTATION POLICIES', false, true);
+      addTermsText('• Transportation is fully refundable before traveling.');
+      addTermsText('• Only the transportation included in the package will be provided; any additional services will incur extra charges.');
+      
+      // Payment Options
+      addTermsText('PAYMENT OPTIONS', false, true);
+      addTermsText('Payment Options for the tickets:', true);
+      addTermsText('1. Credit Card');
+      addTermsText('2. Zelle');
+      addTermsText('3. Wire Transfer / Bank Deposit');
+      addTermsText('Payment Options for the Land Package:', true);
+      addTermsText('1. Zelle');
+      addTermsText('2. Bank Deposit');
+      addTermsText('3. Wire Transfer');
+      addTermsText('Note: In case of payment of land package through credit card there will be a Merchant charge.');
 
       // Add footer
       addFooter();
@@ -1407,6 +1474,115 @@ const Bookings: React.FC = () => {
         doc.setFont('helvetica', 'normal');
         doc.text(dueDate, summaryX + 80, y);
       }
+
+      // ============= TERMS AND CONDITIONS SECTION =============
+      
+      // Check if we need a new page for terms and conditions
+      y += 40;
+      if (y > pageHeight - 350) {
+        doc.addPage();
+        y = margin;
+      }
+
+      // Terms and Conditions Header
+      doc.setFillColor(70, 130, 180); // Steel blue background
+      doc.rect(margin, y, pageWidth - 2 * margin, 25, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TERMS AND CONDITIONS', margin + 10, y + 17);
+      
+      y += 35;
+
+      // Terms content
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      // Helper function to add text with line wrapping and check page breaks
+      const addTermsText = (text: string, isBold: boolean = false, isSubHeader: boolean = false) => {
+        if (y > pageHeight - 80) {
+          doc.addPage();
+          y = margin;
+        }
+        
+        if (isSubHeader) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(30, 58, 138); // Blue color for subheaders
+          doc.text(text, margin + 10, y);
+          y += 18;
+          doc.setFontSize(9);
+          doc.setTextColor(0, 0, 0);
+          return;
+        }
+        
+        if (isBold) {
+          doc.setFont('helvetica', 'bold');
+        } else {
+          doc.setFont('helvetica', 'normal');
+        }
+        
+        // Split long text into lines
+        const maxWidth = pageWidth - 2 * margin - 20;
+        const lines = doc.splitTextToSize(text, maxWidth);
+        
+        for (const line of lines) {
+          if (y > pageHeight - 80) {
+            doc.addPage();
+            y = margin;
+          }
+          doc.text(line, margin + 10, y);
+          y += 14;
+        }
+        y += 4; // Add spacing after each paragraph
+      };
+
+      // Flight Cancellation/Refund/Date Change
+      addTermsText('FLIGHT POLICIES', false, true);
+      addTermsText('• Cancellation / Refund / Date Change: An estimated penalty of $250 or more from the airline as per their policy + $100 service fee per person from the company.');
+      addTermsText('• Flights can be Cancelled / Changed without any fee within 24 hours time span.');
+      addTermsText('• Change of flight can only be done with same airline.');
+      addTermsText('• Airline is responsible for the schedule change or layover time change.');
+      addTermsText('• In case of a no show all the round trip will be cancelled by the airline and there will be no refund.');
+      
+      y += 8;
+      
+      // Land Package
+      addTermsText('LAND PACKAGE POLICIES', false, true);
+      addTermsText('• Land package cancellations must be informed at least one week before travel; otherwise, a 50% charge applies (except for December and Ramadan bookings).');
+      addTermsText('• If an HCN is issued at the time of booking, no refund will be provided for that particular hotel, including hotels outside of Makkah and Madinah.');
+      addTermsText('• Full amount will be refunded in case of any emergency.');
+      
+      y += 8;
+      
+      // Visa
+      addTermsText('VISA POLICIES', false, true);
+      addTermsText('• No Visa amount will be refunded if the visa is issued.');
+      
+      y += 8;
+      
+      // Transportation
+      addTermsText('TRANSPORTATION POLICIES', false, true);
+      addTermsText('• Transportation is fully refundable before traveling.');
+      addTermsText('• Only the transportation included in the package will be provided; any additional services will incur extra charges.');
+      
+      y += 8;
+      
+      // Payment Options
+      addTermsText('PAYMENT OPTIONS', false, true);
+      addTermsText('Payment Options for the tickets:', true);
+      addTermsText('1. Credit Card');
+      addTermsText('2. Zelle');
+      addTermsText('3. Wire Transfer / Bank Deposit');
+      
+      y += 8;
+      
+      addTermsText('Payment Options for the Land Package:', true);
+      addTermsText('1. Zelle');
+      addTermsText('2. Bank Deposit');
+      addTermsText('3. Wire Transfer');
+      addTermsText('Note: In case of payment of land package through credit card there will be a Merchant charge.');
 
       // Save the PDF
       doc.save(`MARWAH-Invoice-${invoiceNo}.pdf`);

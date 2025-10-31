@@ -20,6 +20,7 @@ const AdminDashboard: React.FC = () => {
   const { bookings, inquiries, agents, approveChange, rejectChange, fetchAgents, fetchBookings, fetchInquiries } = useData();
   const [chartPeriod, setChartPeriod] = React.useState<'week' | 'month' | 'year'>('year');
   const [chartType, setChartType] = React.useState<'bookings' | 'profit' | 'revenue'>('bookings');
+  const [dashboardPeriod, setDashboardPeriod] = React.useState<'week' | 'month' | 'year'>('month');
 
   // Refresh data on mount
   React.useEffect(() => {
@@ -28,44 +29,127 @@ const AdminDashboard: React.FC = () => {
     fetchAgents(); // Ensure agents are loaded
   }, []);
 
-  // Get pending approvals
-  const pendingBookings = bookings.filter(b => b.approvalStatus === 'pending');
-  const pendingInquiries = inquiries.filter(i => i.approvalStatus === 'pending');
+  // Helper function to calculate profit from booking
+  const getProfit = (booking: any): number => {
+    // Prioritize calculated profit from costing.totals
+    const costingTotals = booking?.costing?.totals || booking?.pricing?.totals || {};
+    if (typeof costingTotals.profit === 'number') {
+      return costingTotals.profit;
+    }
+    
+    // Calculate profit as totalSale - totalCost
+    const totalCost = costingTotals.totalCostPrice || costingTotals.totalCost || 0;
+    const totalSale = costingTotals.totalSalePrice || costingTotals.totalSale || (booking?.totalAmount || booking?.amount || 0);
+    if (totalSale > 0 || totalCost > 0) {
+      return totalSale - totalCost;
+    }
+    
+    // Fallback to totalAmount if no profit calculation available
+    if (typeof booking?.totalAmount === 'number') {
+      return booking.totalAmount;
+    }
+    if (typeof booking?.amount === 'number') {
+      return booking.amount;
+    }
+    if (typeof booking?.totalAmount === 'string') {
+      const n = Number(String(booking.totalAmount).replace(/[^\d.-]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    if (typeof booking?.amount === 'string') {
+      const n = Number(String(booking.amount).replace(/[^\d.-]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    
+    return 0;
+  };
+
+  // Filter bookings by dashboard period
+  const getFilteredBookingsByDashboardPeriod = () => {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (dashboardPeriod) {
+      case 'week':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), 0, 1);
+    }
+
+    return bookings.filter(booking => {
+      const bookingDate = new Date(booking.createdAt || (booking as any).date || 0);
+      return bookingDate >= startDate && bookingDate <= now;
+    });
+  };
+
+  // Filter inquiries by dashboard period
+  const getFilteredInquiriesByDashboardPeriod = () => {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (dashboardPeriod) {
+      case 'week':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), 0, 1);
+    }
+
+    return inquiries.filter(inquiry => {
+      const inquiryDate = new Date(inquiry.createdAt || 0);
+      return inquiryDate >= startDate && inquiryDate <= now;
+    });
+  };
+
+  // Get filtered data based on dashboard period
+  const filteredDashboardBookings = getFilteredBookingsByDashboardPeriod();
+  const filteredDashboardInquiries = getFilteredInquiriesByDashboardPeriod();
+
+  // Get pending approvals from filtered data
+  const pendingBookings = filteredDashboardBookings.filter(b => b.approvalStatus === 'pending');
+  const pendingInquiries = filteredDashboardInquiries.filter(i => i.approvalStatus === 'pending');
   const totalPendingApprovals = pendingBookings.length + pendingInquiries.length;
 
-  // Calculate real-time metrics
-  const totalRevenue = bookings
+  // Calculate total profit from filtered bookings
+  const totalProfit = filteredDashboardBookings
     .filter(b => b.status === 'confirmed')
     .reduce((sum, b) => {
-      // Try to get amount from various sources, prioritizing calculated totals
-      let amount = 0;
-      
-      if (typeof b.amount === 'number') {
-        amount = b.amount;
-      } else if (typeof b.amount === 'string') {
-        amount = parseFloat(b.amount.replace(/[$,]/g, '')) || 0;
-      }
-      
-      return sum + amount;
+      return sum + getProfit(b);
     }, 0);
 
-  const activeInquiries = inquiries.filter(i => i.status === 'pending').length;
-  const resolvedInquiries = inquiries.filter(i => i.status === 'responded' || i.status === 'closed').length;
+  const activeInquiries = filteredDashboardInquiries.filter(i => i.status === 'pending').length;
+  const resolvedInquiries = filteredDashboardInquiries.filter(i => i.status === 'responded' || i.status === 'closed').length;
+  // Get period label for trends
+  const getPeriodLabel = () => {
+    switch (dashboardPeriod) {
+      case 'week': return 'this week';
+      case 'month': return 'this month';
+      case 'year': return 'this year';
+      default: return 'this month';
+    }
+  };
 
-  // Monthly bookings (current month)
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-  const monthlyBookings = bookings.filter(b => {
-    const bookingDate = new Date(b.createdAt);
-    return bookingDate.getMonth() === currentMonth && bookingDate.getFullYear() === currentYear;
-  }).length;
   const stats = [
     {
       title: 'Total Bookings',
-      value: bookings.length.toString(),
+      value: filteredDashboardBookings.length.toString(),
       icon: Calendar,
       color: 'bg-blue-500',
-      trend: monthlyBookings > 0 ? `+${monthlyBookings} this month` : 'No bookings this month',
+      trend: filteredDashboardBookings.length > 0 ? `${filteredDashboardBookings.length} ${getPeriodLabel()}` : `No bookings ${getPeriodLabel()}`,
     },
     {
       title: 'Active Inquiries',
@@ -82,11 +166,11 @@ const AdminDashboard: React.FC = () => {
       trend: totalPendingApprovals > 0 ? 'Needs attention' : 'All clear',
     },
     {
-      title: 'Total Revenue',
-      value: `$${totalRevenue.toLocaleString()}`,
+      title: 'Total Profit',
+      value: `$${totalProfit.toLocaleString()}`,
       icon: TrendingUp,
       color: 'bg-purple-500',
-      trend: `${bookings.filter(b => b.status === 'confirmed').length} confirmed`,
+      trend: `${filteredDashboardBookings.filter(b => b.status === 'confirmed').length} confirmed`,
     },
   ];
 
@@ -256,13 +340,18 @@ const AdminDashboard: React.FC = () => {
         }
 
         // Only add agents with data
+        // Skip if the agent name contains "admin" or "super" - we only want actual agents
         if (value > 0) {
           const displayName = agent.name || agentMetrics.agentName || `Agent ${index + 1}`;
-          result.push({
-            name: displayName,
-            value: value,
-            color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
-          });
+          
+          // Only show agent names, filter out admin/super admin
+          if (displayName && !displayName.toLowerCase().includes('admin') && !displayName.toLowerCase().includes('super')) {
+            result.push({
+              name: displayName,
+              value: value,
+              color: ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][index % 6]
+            });
+          }
         }
       });
     }
@@ -278,12 +367,23 @@ const AdminDashboard: React.FC = () => {
         return;
       }
       
-      const isKnownAgent = normalizedBookingId && (
-        knownAgentIdSet.has(normalizedBookingId) || 
-        knownAgentIdSet.has(bookingAgentId) ||
-        knownAgentIdSet.has(normalizedBookingId.toLowerCase()) ||
-        knownAgentIdSet.has(bookingAgentId.toLowerCase())
-      );
+      // Try to match against all known agents more thoroughly
+      let isKnownAgent = false;
+      
+      if (normalizedBookingId && agents && agents.length > 0) {
+        // Check if this ID matches any agent
+        agents.forEach(agent => {
+          const agentId = normalizeId(agent.id);
+          if (agentId && (
+            normalizedBookingId === agentId ||
+            bookingAgentId === agentId ||
+            normalizedBookingId.toLowerCase() === agentId.toLowerCase() ||
+            bookingAgentId.toLowerCase() === agentId.toLowerCase()
+          )) {
+            isKnownAgent = true;
+          }
+        });
+      }
       
       if (!isKnownAgent) {
         const metrics = agentMetricsMap[bookingAgentId];
@@ -297,22 +397,26 @@ const AdminDashboard: React.FC = () => {
         }
         
         if (value > 0) {
-          // Use agent name from booking if available, otherwise show "Admin" or "Unknown Agent"
-          const displayName = metrics.agentName || (user?.role === 'admin' ? 'Admin' : 'Unknown Agent');
-          result.push({
-            name: displayName,
-            value: value,
-            color: '#9CA3AF' // Gray color for unknown agents
-          });
-          processedIds.add(bookingAgentId);
-          if (normalizedBookingId) {
-            processedIds.add(normalizedBookingId);
+          // Only use agent name from booking data, never show "Admin" or "Super Admin"
+          const displayName = metrics.agentName || 'Unknown Agent';
+          
+          // Only add if it's not a generic admin label
+          if (displayName && !displayName.toLowerCase().includes('admin') && !displayName.toLowerCase().includes('super')) {
+            result.push({
+              name: displayName,
+              value: value,
+              color: '#9CA3AF' // Gray color for unknown agents
+            });
+            processedIds.add(bookingAgentId);
+            if (normalizedBookingId) {
+              processedIds.add(normalizedBookingId);
+            }
           }
         }
       }
     });
 
-    // Add unassigned if any (only show if it's not just admin bookings)
+    // Add unassigned if any - only show "Unassigned", never "Admin"
     let unassignedValue = 0;
     if (chartType === 'bookings') {
       unassignedValue = unassignedMetrics.bookings;
@@ -322,11 +426,10 @@ const AdminDashboard: React.FC = () => {
       unassignedValue = unassignedMetrics.revenue;
     }
     
-    // Only show "Unassigned" if there are actual unassigned bookings
-    // If user is admin, it might be admin-created bookings
+    // Only show "Unassigned" for bookings that truly have no agent ID
     if (unassignedValue > 0) {
       result.push({
-        name: user?.role === 'admin' ? 'Admin' : 'Unassigned',
+        name: 'Unassigned',
         value: unassignedValue,
         color: '#D1D5DB' // Light gray for unassigned
       });
@@ -1015,6 +1118,73 @@ const AdminDashboard: React.FC = () => {
       const noticeText = 'Please ensure all travel documents are valid for at least 6 months. Arrive at the airport 3 hours before departure. Contact your agent for any changes or cancellations.';
       const splitNotice = doc.splitTextToSize(noticeText, contentWidth - 30);
       doc.text(splitNotice, margin + 15, y + 30);
+      y += 70;
+
+      // ============= TERMS AND CONDITIONS SECTION =============
+      checkPageBreak(100);
+      y = drawSectionHeader('TERMS AND CONDITIONS', y);
+      
+      // Helper function to add terms text
+      const addTermsText = (text: string, isBold: boolean = false, isSubHeader: boolean = false) => {
+        checkPageBreak(30);
+        
+        if (isSubHeader) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+          doc.text(text, margin + 15, y);
+          y += 20;
+          doc.setFontSize(9);
+          doc.setTextColor(0, 0, 0);
+          return;
+        }
+        
+        if (isBold) {
+          doc.setFont('helvetica', 'bold');
+        } else {
+          doc.setFont('helvetica', 'normal');
+        }
+        
+        doc.setFontSize(9);
+        const lines = doc.splitTextToSize(text, contentWidth - 30);
+        doc.text(lines, margin + 15, y);
+        y += (lines.length * 14) + 6;
+      };
+
+      // Flight Policies
+      addTermsText('FLIGHT POLICIES', false, true);
+      addTermsText('• Cancellation / Refund / Date Change: An estimated penalty of $250 or more from the airline as per their policy + $100 service fee per person from the company.');
+      addTermsText('• Flights can be Cancelled / Changed without any fee within 24 hours time span.');
+      addTermsText('• Change of flight can only be done with same airline.');
+      addTermsText('• Airline is responsible for the schedule change or layover time change.');
+      addTermsText('• In case of a no show all the round trip will be cancelled by the airline and there will be no refund.');
+      
+      // Land Package Policies
+      addTermsText('LAND PACKAGE POLICIES', false, true);
+      addTermsText('• Land package cancellations must be informed at least one week before travel; otherwise, a 50% charge applies (except for December and Ramadan bookings).');
+      addTermsText('• If an HCN is issued at the time of booking, no refund will be provided for that particular hotel, including hotels outside of Makkah and Madinah.');
+      addTermsText('• Full amount will be refunded in case of any emergency.');
+      
+      // Visa Policies
+      addTermsText('VISA POLICIES', false, true);
+      addTermsText('• No Visa amount will be refunded if the visa is issued.');
+      
+      // Transportation Policies
+      addTermsText('TRANSPORTATION POLICIES', false, true);
+      addTermsText('• Transportation is fully refundable before traveling.');
+      addTermsText('• Only the transportation included in the package will be provided; any additional services will incur extra charges.');
+      
+      // Payment Options
+      addTermsText('PAYMENT OPTIONS', false, true);
+      addTermsText('Payment Options for the tickets:', true);
+      addTermsText('1. Credit Card');
+      addTermsText('2. Zelle');
+      addTermsText('3. Wire Transfer / Bank Deposit');
+      addTermsText('Payment Options for the Land Package:', true);
+      addTermsText('1. Zelle');
+      addTermsText('2. Bank Deposit');
+      addTermsText('3. Wire Transfer');
+      addTermsText('Note: In case of payment of land package through credit card there will be a Merchant charge.');
 
       addFooter();
 
@@ -1037,6 +1207,39 @@ const AdminDashboard: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
           <p className="text-gray-600">Welcome back, {user?.name}</p>
+        </div>
+        {/* Dashboard Period Filter Buttons */}
+        <div className="mt-4 sm:mt-0 flex items-center space-x-2">
+          <button
+            onClick={() => setDashboardPeriod('week')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              dashboardPeriod === 'week'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Weekly
+          </button>
+          <button
+            onClick={() => setDashboardPeriod('month')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              dashboardPeriod === 'month'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Monthly
+          </button>
+          <button
+            onClick={() => setDashboardPeriod('year')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              dashboardPeriod === 'year'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Yearly
+          </button>
         </div>
       </div>
 
