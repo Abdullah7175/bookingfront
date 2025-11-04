@@ -221,7 +221,7 @@ const Inquiries: React.FC = () => {
   // Send response to backend
   const respond = async (inquiryId: string, text: string) => {
     try {
-      const { data } = await http.post(`/api/inquiries/${inquiryId}/respond`, {
+      await http.post(`/api/inquiries/${inquiryId}/respond`, {
         message: text, // Changed from 'response' to 'message' to match backend
       });
 
