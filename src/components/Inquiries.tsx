@@ -65,7 +65,33 @@ type UiInquiry = {
 };
 
 function mapInquiry(i: any): UiInquiry {
-  const id = i?._id || i?.id || crypto.randomUUID();
+  // Always use MongoDB _id if available (it's the primary key for our MongoDB)
+  // If _id is not present, the inquiry hasn't been synced to our MongoDB yet
+  let id: any = i?._id;
+  
+  // Handle _id as ObjectId object
+  if (id && typeof id === 'object' && typeof id.toString === 'function') {
+    id = id.toString();
+  }
+  
+  // If no _id, check for id field (might be external ID from PostgreSQL)
+  // But we should always have _id since inquiries are stored in MongoDB
+  if (!id) {
+    id = i?.id;
+    if (id && typeof id === 'object' && typeof id.toString === 'function') {
+      id = id.toString();
+    }
+  }
+  
+  // Convert to string
+  const inquiryId = String(id || '');
+  
+  // Log warning if we don't have a valid MongoDB ObjectId (24 hex chars)
+  if (!inquiryId || !/^[0-9a-fA-F]{24}$/.test(inquiryId)) {
+    console.warn('Inquiry missing valid MongoDB _id. External ID:', i?.externalId || i?.id, 'Full object:', i);
+    // Still use it for display, but API calls may fail
+    // The backend will try to find by externalId as fallback
+  }
   // Handle both assignedAgent as object and string
   const assignedAgent = i?.assignedAgent;
   const agentId = assignedAgent?._id || assignedAgent?.id || i?.agentId || assignedAgent || null;
@@ -115,7 +141,7 @@ function mapInquiry(i: any): UiInquiry {
   }
   
   return {
-    id,
+    id: inquiryId,
     name: i?.name ?? i?.customerName ?? 'Unknown',
     email: i?.email ?? i?.customerEmail ?? '',
     phone: i?.phone ?? i?.customerPhone ?? i?.contactNumber ?? '',
@@ -267,6 +293,7 @@ const Inquiries: React.FC = () => {
   const assignInquiry = async (inquiryId: string, agentId: string | null) => {
     setLoading(true);
     setErr(''); // Clear any previous errors
+    
     try {
       if (!agentId || agentId === '') {
         // Unassign - just update the inquiry without creating booking
