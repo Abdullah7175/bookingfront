@@ -263,18 +263,34 @@ const Inquiries: React.FC = () => {
     }
   };
 
-  // Assign inquiry to agent (admin only)
+  // Assign inquiry to agent (admin only) - creates booking entry first, then assigns
   const assignInquiry = async (inquiryId: string, agentId: string | null) => {
+    setLoading(true);
+    setErr(''); // Clear any previous errors
     try {
-      await http.put(`/api/inquiries/${inquiryId}`, {
-        assignedAgent: agentId || null,
-      });
+      if (!agentId || agentId === '') {
+        // Unassign - just update the inquiry without creating booking
+        await http.put(`/api/inquiries/${inquiryId}`, {
+          assignedAgent: null,
+        });
+      } else {
+        // Assign - use new endpoint that creates booking entry first
+        await http.post(`/api/inquiries/${inquiryId}/assign`, {
+          assignedAgent: agentId,
+          createBooking: true, // Create booking entry when assigning
+        });
+      }
       await fetchInquiries();
       setAssigningTo(null);
       setSelectedAgentId('');
-    } catch (error) {
+      setErr(''); // Clear any previous errors
+    } catch (error: any) {
       console.error('Failed to assign inquiry:', error);
-      setErr('Failed to assign inquiry. Please try again.');
+      const errorMessage = error?.response?.data?.message || 'Failed to assign inquiry. Please try again.';
+      setErr(errorMessage);
+      // Keep assignment UI open on error so user can retry
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -743,29 +759,49 @@ const Inquiries: React.FC = () => {
                   {isAdmin && assigningTo === inquiry.id && (
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                       <h5 className="text-sm font-semibold text-blue-900 mb-3">Assign to Agent</h5>
+                      {err && (
+                        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                          <p className="text-sm text-red-800">{err}</p>
+                        </div>
+                      )}
                       <div className="space-y-3">
-                        <select
-                          value={selectedAgentId}
-                          onChange={(e) => setSelectedAgentId(e.target.value)}
-                          className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">-- Unassign --</option>
-                          {agents.map((agent) => (
-                            <option key={agent.id} value={agent.id}>
-                              {agent.name} ({agent.email})
-                            </option>
-                          ))}
-                        </select>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            {selectedAgentId && selectedAgentId !== '' 
+                              ? 'This will create a booking entry and assign the inquiry to the selected agent'
+                              : 'Select an agent to assign (this will also create a booking entry)'}
+                          </label>
+                          <select
+                            value={selectedAgentId}
+                            onChange={(e) => {
+                              setSelectedAgentId(e.target.value);
+                              setErr(''); // Clear error when selection changes
+                            }}
+                            className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">-- Unassign (no booking created) --</option>
+                            {agents.map((agent) => (
+                              <option key={agent.id} value={agent.id}>
+                                {agent.name} ({agent.email})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         <div className="flex space-x-2">
                           <button
                             onClick={() => handleConfirmAssign(inquiry.id)}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={loading}
                           >
-                            Confirm Assignment
+                            {loading ? 'Processing...' : selectedAgentId && selectedAgentId !== '' ? 'Assign & Create Booking' : 'Unassign'}
                           </button>
                           <button
-                            onClick={handleCancelAssign}
+                            onClick={() => {
+                              handleCancelAssign();
+                              setErr('');
+                            }}
                             className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                            disabled={loading}
                           >
                             Cancel
                           </button>
