@@ -290,7 +290,7 @@ const Inquiries: React.FC = () => {
   };
 
   // Assign inquiry to agent (admin only) - creates booking entry first, then assigns
-  const assignInquiry = async (inquiryId: string, agentId: string | null) => {
+  const assignInquiry = async (inquiryId: string, agentId: string | null, inquiryData?: UiInquiry) => {
     setLoading(true);
     setErr(''); // Clear any previous errors
     
@@ -302,9 +302,18 @@ const Inquiries: React.FC = () => {
         });
       } else {
         // Assign - use new endpoint that creates booking entry first
+        // Include inquiry data so backend can create it if it doesn't exist
         await http.post(`/api/inquiries/${inquiryId}/assign`, {
           assignedAgent: agentId,
           createBooking: true, // Create booking entry when assigning
+          inquiryData: inquiryData ? {
+            customerName: inquiryData.name,
+            customerEmail: inquiryData.email,
+            customerPhone: inquiryData.phone,
+            message: inquiryData.message,
+            externalId: inquiryId, // The ID from external system
+            packageDetails: inquiryData.packageDetails,
+          } : undefined,
         });
       }
       await fetchInquiries();
@@ -332,11 +341,14 @@ const Inquiries: React.FC = () => {
   };
 
   const handleConfirmAssign = (inquiryId: string) => {
+    // Find the inquiry object to send its data
+    const inquiry = list.find(inq => inq.id === inquiryId);
+    
     if (selectedAgentId === '') {
       // Unassign
-      assignInquiry(inquiryId, null);
+      assignInquiry(inquiryId, null, inquiry);
     } else {
-      assignInquiry(inquiryId, selectedAgentId);
+      assignInquiry(inquiryId, selectedAgentId, inquiry);
     }
   };
 
