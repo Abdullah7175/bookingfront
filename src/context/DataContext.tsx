@@ -202,6 +202,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id,
           agentId,
           agentName,
+          packageDetails: i?.packageDetails || null, // Preserve package details
         } as Inquiry;
       });
 

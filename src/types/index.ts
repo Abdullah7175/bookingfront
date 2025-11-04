@@ -32,7 +32,7 @@ export interface Inquiry {
   phone: string;
   subject: string;
   message: string;
-  status: 'pending' | 'responded' | 'closed';
+  status: 'pending' | 'responded' | 'closed' | 'in-progress' | 'resolved';
   priority: 'high' | 'medium' | 'low';
   agentId: string;
   agentName: string;
@@ -41,6 +41,37 @@ export interface Inquiry {
   response?: string;
   pendingChanges?: Partial<Inquiry>;
   approvalStatus?: 'pending' | 'approved' | 'rejected';
+  packageDetails?: {
+    packageName?: string;
+    pricing?: {
+      double?: string;
+      triple?: string;
+      quad?: string;
+      currency?: string;
+    };
+    duration?: {
+      nightsMakkah?: string;
+      nightsMadina?: string;
+      totalNights?: string;
+    };
+    hotels?: {
+      makkah?: string;
+      madina?: string;
+    };
+    services?: {
+      transportation?: string;
+      visa?: string;
+    };
+    inclusions?: {
+      breakfast?: boolean;
+      dinner?: boolean;
+      visa?: boolean;
+      ticket?: boolean;
+      roundtrip?: boolean;
+      ziyarat?: boolean;
+      guide?: boolean;
+    };
+  };
 }
 
 export interface Agent {

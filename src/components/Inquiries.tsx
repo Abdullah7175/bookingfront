@@ -12,6 +12,8 @@ import {
   User,
   Mail,
   Phone,
+  UserPlus,
+  Package,
 } from 'lucide-react';
 
 type UiInquiry = {
@@ -29,15 +31,51 @@ type UiInquiry = {
   agentId?: string;
   agentName?: string;
   createdAt?: string;
+  packageDetails?: {
+    packageName?: string;
+    pricing?: {
+      double?: string;
+      triple?: string;
+      quad?: string;
+      currency?: string;
+    };
+    duration?: {
+      nightsMakkah?: string;
+      nightsMadina?: string;
+      totalNights?: string;
+    };
+    hotels?: {
+      makkah?: string;
+      madina?: string;
+    };
+    services?: {
+      transportation?: string;
+      visa?: string;
+    };
+    inclusions?: {
+      breakfast?: boolean;
+      dinner?: boolean;
+      visa?: boolean;
+      ticket?: boolean;
+      roundtrip?: boolean;
+      ziyarat?: boolean;
+      guide?: boolean;
+    };
+  };
 };
 
 function mapInquiry(i: any): UiInquiry {
   const id = i?._id || i?.id || crypto.randomUUID();
+  // Handle both assignedAgent as object and string
+  const assignedAgent = i?.assignedAgent;
+  const agentId = assignedAgent?._id || assignedAgent?.id || i?.agentId || assignedAgent || null;
+  const agentName = assignedAgent?.name || i?.agentName || '';
+  
   return {
     id,
     name: i?.name ?? i?.customerName ?? 'Unknown',
-    email: i?.email ?? '',
-    phone: i?.phone ?? i?.contactNumber ?? '',
+    email: i?.email ?? i?.customerEmail ?? '',
+    phone: i?.phone ?? i?.customerPhone ?? i?.contactNumber ?? '',
     subject: i?.subject ?? '(No subject)',
     message: i?.message ?? '',
     status: (i?.status ?? 'pending') as UiInquiry['status'],
@@ -45,9 +83,10 @@ function mapInquiry(i: any): UiInquiry {
     approvalStatus: i?.approvalStatus,
     response: i?.response,
     responses: i?.responses || [], // Add responses array
-    agentId: i?.agentId ?? i?.agent?.id,
-    agentName: i?.agentName ?? i?.agent?.name ?? '',
+    agentId: agentId ? String(agentId) : undefined,
+    agentName,
     createdAt: i?.createdAt,
+    packageDetails: i?.packageDetails || null,
   };
 }
 
@@ -98,7 +137,7 @@ function formatDate(dateString?: string) {
 
 const Inquiries: React.FC = () => {
   const { user } = useAuth();
-  const { inquiries, fetchInquiries } = useData();
+  const { inquiries, fetchInquiries, agents } = useData();
   const isAdmin = user?.role === 'admin';
 
   const [loading, setLoading] = useState(false);
@@ -110,6 +149,8 @@ const Inquiries: React.FC = () => {
   const [responseText, setResponseText] = useState('');
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
   const [expandedInquiry, setExpandedInquiry] = useState<string | null>(null);
+  const [assigningTo, setAssigningTo] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const canEditInquiry = (inq: UiInquiry) => isAdmin || inq.agentId === user?.id || inq.agentId === user?.agentId;
 
   // Map inquiries from context to UI format
@@ -176,6 +217,40 @@ const Inquiries: React.FC = () => {
       setResponseText('');
     } catch (e) {
       alert('Failed to send response');
+    }
+  };
+
+  // Assign inquiry to agent (admin only)
+  const assignInquiry = async (inquiryId: string, agentId: string | null) => {
+    try {
+      await http.put(`/api/inquiries/${inquiryId}`, {
+        assignedAgent: agentId || null,
+      });
+      await fetchInquiries();
+      setAssigningTo(null);
+      setSelectedAgentId('');
+    } catch (error) {
+      console.error('Failed to assign inquiry:', error);
+      setErr('Failed to assign inquiry. Please try again.');
+    }
+  };
+
+  const handleAssignClick = (inquiryId: string, currentAgentId?: string) => {
+    setAssigningTo(inquiryId);
+    setSelectedAgentId(currentAgentId || '');
+  };
+
+  const handleCancelAssign = () => {
+    setAssigningTo(null);
+    setSelectedAgentId('');
+  };
+
+  const handleConfirmAssign = (inquiryId: string) => {
+    if (selectedAgentId === '') {
+      // Unassign
+      assignInquiry(inquiryId, null);
+    } else {
+      assignInquiry(inquiryId, selectedAgentId);
     }
   };
 
@@ -317,6 +392,19 @@ const Inquiries: React.FC = () => {
                         Pending Approval
                       </span>
                     )}
+                    {inquiry.packageDetails?.packageName && (
+                      <span className="inline-flex items-center space-x-1 px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+                        <Package className="h-3 w-3" />
+                        <span>Package Inquiry</span>
+                      </span>
+                    )}
+                    {isAdmin && (
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                        inquiry.agentName ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {inquiry.agentName ? `Assigned: ${inquiry.agentName}` : 'Unassigned'}
+                      </span>
+                    )}
                   </div>
 
                   <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2 line-clamp-2">{inquiry.subject}</h3>
@@ -362,6 +450,15 @@ const Inquiries: React.FC = () => {
                 </div>
 
                 <div className="flex flex-col space-y-2 xl:ml-6">
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleAssignClick(inquiry.id, inquiry.agentId)}
+                      className="flex items-center justify-center space-x-1 flex-1 sm:flex-none px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      <span>{inquiry.agentName ? 'Reassign' : 'Assign Agent'}</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => toggleDetails(inquiry.id)}
                     className="flex-1 sm:flex-none px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
@@ -400,6 +497,9 @@ const Inquiries: React.FC = () => {
                         <p><strong>Name:</strong> {inquiry.name}</p>
                         <p><strong>Email:</strong> {inquiry.email}</p>
                         <p><strong>Phone:</strong> {inquiry.phone || 'Not provided'}</p>
+                        {isAdmin && (
+                          <p><strong>Assigned Agent:</strong> {inquiry.agentName || 'Unassigned'}</p>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -418,6 +518,132 @@ const Inquiries: React.FC = () => {
                       {inquiry.message}
                     </div>
                   </div>
+                  
+                  {/* Package Details Section */}
+                  {inquiry.packageDetails && inquiry.packageDetails.packageName && (
+                    <div className="mt-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                      <div className="flex items-center space-x-2 mb-3">
+                        <Package className="h-5 w-5 text-purple-600" />
+                        <h5 className="text-sm font-semibold text-purple-900 uppercase tracking-wide">Package Details</h5>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-purple-900 font-medium mb-2">{inquiry.packageDetails.packageName}</p>
+                          {inquiry.packageDetails.pricing && (
+                            <div className="space-y-1 text-purple-800">
+                              {inquiry.packageDetails.pricing.double && (
+                                <p><strong>Double:</strong> {inquiry.packageDetails.pricing.currency || 'USD'} {inquiry.packageDetails.pricing.double}</p>
+                              )}
+                              {inquiry.packageDetails.pricing.triple && (
+                                <p><strong>Triple:</strong> {inquiry.packageDetails.pricing.currency || 'USD'} {inquiry.packageDetails.pricing.triple}</p>
+                              )}
+                              {inquiry.packageDetails.pricing.quad && (
+                                <p><strong>Quad:</strong> {inquiry.packageDetails.pricing.currency || 'USD'} {inquiry.packageDetails.pricing.quad}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-1 text-purple-800">
+                          {inquiry.packageDetails.duration && (
+                            <>
+                              {inquiry.packageDetails.duration.totalNights && (
+                                <p><strong>Total Nights:</strong> {inquiry.packageDetails.duration.totalNights}</p>
+                              )}
+                              {inquiry.packageDetails.duration.nightsMakkah && (
+                                <p><strong>Makkah:</strong> {inquiry.packageDetails.duration.nightsMakkah} nights</p>
+                              )}
+                              {inquiry.packageDetails.duration.nightsMadina && (
+                                <p><strong>Madinah:</strong> {inquiry.packageDetails.duration.nightsMadina} nights</p>
+                              )}
+                            </>
+                          )}
+                          {inquiry.packageDetails.hotels && (
+                            <>
+                              {inquiry.packageDetails.hotels.makkah && (
+                                <p><strong>Makkah Hotel:</strong> {inquiry.packageDetails.hotels.makkah}</p>
+                              )}
+                              {inquiry.packageDetails.hotels.madina && (
+                                <p><strong>Madinah Hotel:</strong> {inquiry.packageDetails.hotels.madina}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        {inquiry.packageDetails.services && (
+                          <div className="col-span-1 md:col-span-2 space-y-1 text-purple-800">
+                            {inquiry.packageDetails.services.transportation && (
+                              <p><strong>Transportation:</strong> {inquiry.packageDetails.services.transportation}</p>
+                            )}
+                            {inquiry.packageDetails.services.visa && (
+                              <p><strong>Visa:</strong> {inquiry.packageDetails.services.visa}</p>
+                            )}
+                          </div>
+                        )}
+                        {inquiry.packageDetails.inclusions && (
+                          <div className="col-span-1 md:col-span-2 mt-2">
+                            <p className="font-medium text-purple-900 mb-1">Inclusions:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {inquiry.packageDetails.inclusions.breakfast && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">Breakfast</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.dinner && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">Dinner</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.visa && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">Visa</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.ticket && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">Ticket</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.roundtrip && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">Round-trip</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.ziyarat && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">Ziyarat</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.guide && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">Guide</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Assignment UI for Admin */}
+                  {isAdmin && assigningTo === inquiry.id && (
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <h5 className="text-sm font-semibold text-blue-900 mb-3">Assign to Agent</h5>
+                      <div className="space-y-3">
+                        <select
+                          value={selectedAgentId}
+                          onChange={(e) => setSelectedAgentId(e.target.value)}
+                          className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          <option value="">-- Unassign --</option>
+                          {agents.map((agent) => (
+                            <option key={agent.id} value={agent.id}>
+                              {agent.name} ({agent.email})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleConfirmAssign(inquiry.id)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                          >
+                            Confirm Assignment
+                          </button>
+                          <button
+                            onClick={handleCancelAssign}
+                            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {inquiry.responses && inquiry.responses.length > 0 && (
                     <div className="mt-4">
                       <h5 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Responses</h5>
