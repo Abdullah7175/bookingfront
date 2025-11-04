@@ -197,12 +197,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const agentId = idOf(i?.assignedAgent) || i?.agentId;
         const agentName = i?.assignedAgent?.name || i?.agentName;
 
+        // Preserve all fields including flat package fields that might exist in database
         return {
-          ...i,
+          ...i, // Spread all fields to preserve flat package fields (package_name, price_double, etc.)
           id,
           agentId,
           agentName,
-          packageDetails: i?.packageDetails || null, // Preserve package details
+          packageDetails: i?.packageDetails || null, // Preserve nested package details if present
         } as Inquiry;
       });
 

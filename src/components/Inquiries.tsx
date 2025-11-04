@@ -71,6 +71,49 @@ function mapInquiry(i: any): UiInquiry {
   const agentId = assignedAgent?._id || assignedAgent?.id || i?.agentId || assignedAgent || null;
   const agentName = assignedAgent?.name || i?.agentName || '';
   
+  // Handle package details - check both nested packageDetails and flat fields from database
+  let packageDetails = i?.packageDetails || null;
+  
+  // If no nested packageDetails but we have flat fields, construct packageDetails object
+  if (!packageDetails && (i?.package_name || i?.packageName)) {
+    packageDetails = {
+      packageName: i?.package_name || i?.packageName || null,
+      pricing: {
+        double: i?.price_double || null,
+        triple: i?.price_triple || null,
+        quad: i?.price_quad || null,
+        currency: i?.currency || 'USD',
+      },
+      duration: {
+        nightsMakkah: i?.nights_makkah || i?.nightsMakkah || null,
+        nightsMadina: i?.nights_madina || i?.nightsMadina || null,
+        totalNights: i?.total_nights || i?.totalNights || null,
+      },
+      hotels: {
+        makkah: i?.hotel_makkah || i?.hotelMakkah || null,
+        madina: i?.hotel_madina || i?.hotelMadina || null,
+      },
+      services: {
+        transportation: i?.transportation || null,
+        visa: i?.visa_service || i?.visaService || null,
+      },
+      inclusions: {
+        breakfast: Boolean(i?.breakfast === 1 || i?.breakfast === '1' || i?.breakfast === true),
+        dinner: Boolean(i?.dinner === 1 || i?.dinner === '1' || i?.dinner === true),
+        visa: Boolean(i?.visa === 1 || i?.visa === '1' || i?.visa === true || i?.visa_included === 1 || i?.visa_included === '1' || i?.visa_included === true),
+        ticket: Boolean(i?.ticket === 1 || i?.ticket === '1' || i?.ticket === true),
+        roundtrip: Boolean(i?.roundtrip === 1 || i?.roundtrip === '1' || i?.roundtrip === true),
+        ziyarat: Boolean(i?.ziyarat === 1 || i?.ziyarat === '1' || i?.ziyarat === true),
+        guide: Boolean(i?.guide === 1 || i?.guide === '1' || i?.guide === true),
+      },
+    };
+    
+    // Only include if packageName exists
+    if (!packageDetails.packageName) {
+      packageDetails = null;
+    }
+  }
+  
   return {
     id,
     name: i?.name ?? i?.customerName ?? 'Unknown',
@@ -86,7 +129,7 @@ function mapInquiry(i: any): UiInquiry {
     agentId: agentId ? String(agentId) : undefined,
     agentName,
     createdAt: i?.createdAt,
-    packageDetails: i?.packageDetails || null,
+    packageDetails,
   };
 }
 
@@ -424,7 +467,93 @@ const Inquiries: React.FC = () => {
                     </div>
                   </div>
 
-                  <p className="text-sm sm:text-base text-gray-600 mb-4 line-clamp-2 sm:line-clamp-3">{inquiry.message}</p>
+                  <p className="text-sm sm:text-base text-gray-600 mb-3 line-clamp-2 sm:line-clamp-3">{inquiry.message}</p>
+
+                  {/* Package Details Summary - Show in list view */}
+                  {inquiry.packageDetails && inquiry.packageDetails.packageName && (
+                    <div className="mb-3 p-3 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200">
+                      <div className="flex items-start space-x-2 mb-2">
+                        <Package className="h-4 w-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-purple-900 mb-1">{inquiry.packageDetails.packageName}</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs text-purple-800">
+                            {inquiry.packageDetails.pricing && (
+                              <>
+                                {inquiry.packageDetails.pricing.quad && (
+                                  <div>
+                                    <span className="font-medium">Quad:</span> {inquiry.packageDetails.pricing.currency || 'USD'} {inquiry.packageDetails.pricing.quad}
+                                  </div>
+                                )}
+                                {inquiry.packageDetails.pricing.triple && (
+                                  <div>
+                                    <span className="font-medium">Triple:</span> {inquiry.packageDetails.pricing.currency || 'USD'} {inquiry.packageDetails.pricing.triple}
+                                  </div>
+                                )}
+                                {inquiry.packageDetails.pricing.double && (
+                                  <div>
+                                    <span className="font-medium">Double:</span> {inquiry.packageDetails.pricing.currency || 'USD'} {inquiry.packageDetails.pricing.double}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            {inquiry.packageDetails.duration?.totalNights && (
+                              <div>
+                                <span className="font-medium">Duration:</span> {inquiry.packageDetails.duration.totalNights} nights
+                                {inquiry.packageDetails.duration.nightsMakkah && inquiry.packageDetails.duration.nightsMadina && (
+                                  <span className="text-purple-600"> ({inquiry.packageDetails.duration.nightsMakkah}M/{inquiry.packageDetails.duration.nightsMadina}Md)</span>
+                                )}
+                              </div>
+                            )}
+                            {inquiry.packageDetails.hotels?.makkah && (
+                              <div className="truncate" title={inquiry.packageDetails.hotels.makkah}>
+                                <span className="font-medium">Makkah:</span> {inquiry.packageDetails.hotels.makkah}
+                              </div>
+                            )}
+                            {inquiry.packageDetails.hotels?.madina && (
+                              <div className="truncate" title={inquiry.packageDetails.hotels.madina}>
+                                <span className="font-medium">Madinah:</span> {inquiry.packageDetails.hotels.madina}
+                              </div>
+                            )}
+                            {inquiry.packageDetails.services?.transportation && (
+                              <div className="truncate" title={inquiry.packageDetails.services.transportation}>
+                                <span className="font-medium">Transport:</span> {inquiry.packageDetails.services.transportation}
+                              </div>
+                            )}
+                            {inquiry.packageDetails.services?.visa && (
+                              <div className="truncate" title={inquiry.packageDetails.services.visa}>
+                                <span className="font-medium">Visa:</span> {inquiry.packageDetails.services.visa}
+                              </div>
+                            )}
+                          </div>
+                          {inquiry.packageDetails.inclusions && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {inquiry.packageDetails.inclusions.breakfast && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">Breakfast</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.dinner && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">Dinner</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.visa && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">Visa</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.ticket && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">Ticket</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.roundtrip && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">Round-trip</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.ziyarat && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">Ziyarat</span>
+                              )}
+                              {inquiry.packageDetails.inclusions.guide && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">Guide</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {inquiry.responses && inquiry.responses.length > 0 && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
