@@ -201,11 +201,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Preserve packageDetails - handle both nested structure and ensure it's properly formatted
         let packageDetails = i?.packageDetails || null;
         
-        // Debug: Log raw packageDetails from backend
-        if (i?.packageDetails) {
-          console.log('Raw packageDetails from backend:', i.packageDetails, 'for inquiry:', id);
-        }
-        
         // If packageDetails exists but is an empty object, set to null
         if (packageDetails && typeof packageDetails === 'object' && Object.keys(packageDetails).length === 0) {
           packageDetails = null;
@@ -252,11 +247,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else {
             packageDetails = null;
           }
-        }
-        
-        // Debug: Log final packageDetails before returning
-        if (packageDetails && packageDetails.packageName) {
-          console.log('Final packageDetails being set:', packageDetails, 'for inquiry:', id);
         }
         
         // Preserve all fields including flat package fields that might exist in database

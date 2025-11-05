@@ -151,14 +151,8 @@ function mapInquiry(i: any): UiInquiry {
   // Handle package details - check both nested packageDetails and flat fields from database
   let packageDetails = i?.packageDetails || null;
   
-  // Debug: Log what we receive
-  if (i?.packageDetails) {
-    console.log('mapInquiry - Received packageDetails:', i.packageDetails, 'for inquiry:', inquiryId);
-  }
-  
   // If packageDetails exists but is empty or doesn't have packageName, try to rebuild it
   if (packageDetails && (!packageDetails.packageName || Object.keys(packageDetails).length === 0)) {
-    console.log('mapInquiry - packageDetails exists but is invalid, resetting:', packageDetails);
     packageDetails = null; // Reset to null so we can try to reconstruct
   }
   
@@ -200,13 +194,6 @@ function mapInquiry(i: any): UiInquiry {
     if (!packageDetails || !packageDetails.packageName) {
       packageDetails = null;
     }
-  }
-  
-  // Debug: Log packageDetails if it exists (for troubleshooting)
-  if (packageDetails && packageDetails.packageName) {
-    console.log('mapInquiry - Final packageDetails:', packageDetails, 'for inquiry:', inquiryId);
-  } else if (i?.packageDetails) {
-    console.log('mapInquiry - packageDetails exists but packageName missing:', i.packageDetails);
   }
   
   return {
@@ -439,7 +426,12 @@ const Inquiries: React.FC = () => {
   };
 
   const displayInquiries = useMemo(() => {
-    // Filter by tab: unassigned or assigned
+    // For agents: show all inquiries (backend already filtered to only their assigned ones)
+    if (!isAdmin) {
+      return list;
+    }
+    
+    // For admins: Filter by tab: unassigned or assigned
     if (activeTab === 'unassigned') {
       // Show only unassigned inquiries (no agentId or agentName)
       return list.filter(inq => !inq.agentId && !inq.agentName);
@@ -447,7 +439,7 @@ const Inquiries: React.FC = () => {
       // Show only assigned inquiries (has agentId or agentName)
       return list.filter(inq => inq.agentId || inq.agentName);
     }
-  }, [list, activeTab]);
+  }, [list, activeTab, isAdmin]);
 
   const filteredInquiries = displayInquiries.filter((inquiry) => {
     const s = searchTerm.toLowerCase();
