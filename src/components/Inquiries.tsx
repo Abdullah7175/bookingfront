@@ -87,7 +87,30 @@ function mapInquiry(i: any): UiInquiry {
   if (!id) {
     id = i?.externalId;
   }
-  const inquiryId = String(id || '');
+  
+  // Ensure we always have a string ID - if all else fails, create a unique ID
+  let inquiryId = '';
+  if (id) {
+    if (typeof id === 'object') {
+      // Last resort: try to stringify or use JSON.stringify
+      inquiryId = id.toString ? id.toString() : JSON.stringify(id);
+    } else {
+      inquiryId = String(id);
+    }
+  }
+  
+  // If still no valid ID, create a fallback using externalId or index
+  if (!inquiryId || inquiryId === '[object Object]') {
+    // Try externalId as fallback
+    if (i?.externalId) {
+      inquiryId = String(i.externalId);
+    } else if (i?.id) {
+      inquiryId = String(i.id);
+    } else {
+      // Last resort: create a unique ID based on email and name
+      inquiryId = `ext_${i?.email || 'unknown'}_${i?.name || 'unknown'}_${Date.now()}`;
+    }
+  }
   
   // Log warning if we don't have a valid MongoDB ObjectId (24 hex chars) - but this is OK for external inquiries
   if (!inquiryId || !/^[0-9a-fA-F]{24}$/.test(inquiryId)) {
@@ -95,7 +118,10 @@ function mapInquiry(i: any): UiInquiry {
     if (i?._isExternal || i?.externalId) {
       // This is an external inquiry - no warning needed
     } else {
-      console.warn('Inquiry missing valid MongoDB _id. External ID:', i?.externalId || i?.id, 'Full object:', i);
+      // Only warn if we still have a valid-looking ID (not our fallback)
+      if (!inquiryId.startsWith('ext_')) {
+        console.warn('Inquiry missing valid MongoDB _id. External ID:', i?.externalId || i?.id, 'Full object:', i);
+      }
     }
   }
   // Handle both assignedAgent as object (populated) and string/ID
@@ -371,8 +397,20 @@ const Inquiries: React.FC = () => {
   };
 
   const handleConfirmAssign = (inquiryId: string) => {
+    // Verify we're assigning the correct inquiry
+    if (assigningTo !== inquiryId) {
+      console.error('Assignment mismatch: assigningTo:', assigningTo, 'inquiryId:', inquiryId);
+      setErr('Error: Inquiry ID mismatch. Please try again.');
+      return;
+    }
+    
     // Find the inquiry object to send its data
     const inquiry = list.find(inq => inq.id === inquiryId);
+    
+    if (!inquiry) {
+      setErr('Error: Inquiry not found. Please refresh and try again.');
+      return;
+    }
     
     if (selectedAgentId === '') {
       // Unassign
