@@ -83,14 +83,20 @@ function mapInquiry(i: any): UiInquiry {
     }
   }
   
-  // Convert to string
+  // Convert to string - use externalId if no MongoDB _id (for external inquiries not yet synced)
+  if (!id) {
+    id = i?.externalId;
+  }
   const inquiryId = String(id || '');
   
-  // Log warning if we don't have a valid MongoDB ObjectId (24 hex chars)
+  // Log warning if we don't have a valid MongoDB ObjectId (24 hex chars) - but this is OK for external inquiries
   if (!inquiryId || !/^[0-9a-fA-F]{24}$/.test(inquiryId)) {
-    console.warn('Inquiry missing valid MongoDB _id. External ID:', i?.externalId || i?.id, 'Full object:', i);
-    // Still use it for display, but API calls may fail
-    // The backend will try to find by externalId as fallback
+    // External inquiries use externalId instead of MongoDB _id - this is expected
+    if (i?._isExternal || i?.externalId) {
+      // This is an external inquiry - no warning needed
+    } else {
+      console.warn('Inquiry missing valid MongoDB _id. External ID:', i?.externalId || i?.id, 'Full object:', i);
+    }
   }
   // Handle both assignedAgent as object (populated) and string/ID
   const assignedAgent = i?.assignedAgent;
@@ -233,6 +239,7 @@ const Inquiries: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'responded' | 'closed'>('all');
+  const [activeTab, setActiveTab] = useState<'unassigned' | 'assigned'>('unassigned'); // Tab state
 
   const [responseText, setResponseText] = useState('');
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
@@ -339,6 +346,10 @@ const Inquiries: React.FC = () => {
       setAssigningTo(null);
       setSelectedAgentId('');
       setErr(''); // Clear any previous errors
+      // Switch to assigned tab after successful assignment (only if assigning, not unassigning)
+      if (agentId) {
+        setActiveTab('assigned');
+      }
     } catch (error: any) {
       console.error('Failed to assign inquiry:', error);
       const errorMessage = error?.response?.data?.message || 'Failed to assign inquiry. Please try again.';
@@ -372,9 +383,15 @@ const Inquiries: React.FC = () => {
   };
 
   const displayInquiries = useMemo(() => {
-    // Show all inquiries for both admin and agents to reflect external portal feed
-    return list;
-  }, [list]);
+    // Filter by tab: unassigned or assigned
+    if (activeTab === 'unassigned') {
+      // Show only unassigned inquiries (no agentId or agentName)
+      return list.filter(inq => !inq.agentId && !inq.agentName);
+    } else {
+      // Show only assigned inquiries (has agentId or agentName)
+      return list.filter(inq => inq.agentId || inq.agentName);
+    }
+  }, [list, activeTab]);
 
   const filteredInquiries = displayInquiries.filter((inquiry) => {
     const s = searchTerm.toLowerCase();
@@ -389,6 +406,10 @@ const Inquiries: React.FC = () => {
   const pendingCount = filteredInquiries.filter((i) => i.status === 'pending').length;
   const respondedCount = filteredInquiries.filter((i) => i.status === 'responded').length;
   const closedCount = filteredInquiries.filter((i) => i.status === 'closed').length;
+
+  // Count for tabs
+  const unassignedCount = list.filter(inq => !inq.agentId && !inq.agentName).length;
+  const assignedCount = list.filter(inq => inq.agentId || inq.agentName).length;
 
   return (
     <div className="space-y-6">
@@ -405,6 +426,52 @@ const Inquiries: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Tabs for Admin */}
+      {isAdmin && (
+        <div className="bg-white rounded-xl border border-gray-200 p-1">
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setActiveTab('unassigned')}
+              className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${
+                activeTab === 'unassigned'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Unassigned
+              {unassignedCount > 0 && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'unassigned'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700'
+                }`}>
+                  {unassignedCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('assigned')}
+              className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${
+                activeTab === 'assigned'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Assigned
+              {assignedCount > 0 && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'assigned'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700'
+                }`}>
+                  {assignedCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Loading / Error */}
       {loading && <div className="bg-white rounded-xl border border-gray-200 p-4">Loading inquiries…</div>}
