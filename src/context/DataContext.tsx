@@ -176,8 +176,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const id = idOf(i)!;
         // Handle assignedAgent - it might be an object with _id and name (populated) or just an ID
         const assignedAgent = i?.assignedAgent;
-        const agentId = assignedAgent?._id ? idOf(assignedAgent._id) : (assignedAgent?.id ? idOf(assignedAgent.id) : (idOf(assignedAgent) || i?.agentId));
-        const agentName = assignedAgent?.name || i?.agentName || '';
+        let agentId: string | undefined;
+        let agentName = '';
+        
+        if (assignedAgent) {
+          // If populated object (has _id or id and name)
+          if (typeof assignedAgent === 'object' && !Array.isArray(assignedAgent)) {
+            agentId = assignedAgent._id ? String(assignedAgent._id) : (assignedAgent.id ? String(assignedAgent.id) : undefined);
+            agentName = assignedAgent.name || '';
+          } else if (typeof assignedAgent === 'string') {
+            // If just an ID string
+            agentId = assignedAgent;
+          }
+        }
+        
+        // Fallback to top-level fields if not extracted from assignedAgent
+        if (!agentId) {
+          agentId = i?.agentId ? String(i.agentId) : undefined;
+        }
+        if (!agentName) {
+          agentName = i?.agentName || '';
+        }
 
         // Preserve all fields including flat package fields that might exist in database
         return {
