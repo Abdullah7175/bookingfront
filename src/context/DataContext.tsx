@@ -167,35 +167,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ---- Fetch inquiries ----
   const fetchInquiries = React.useCallback(async () => {
     try {
-      // If VITE_INQUIRIES_API_BASE is set, fetch from the external portal; otherwise use our backend
-      const externalBase = (import.meta as any).env?.VITE_INQUIRIES_API_BASE as string | undefined;
-      
-      // Normalize external base URL to use www.mtumrah.com instead of mtumrah.com
-      let normalizedExternalBase = externalBase;
-      if (externalBase) {
-        try {
-          const url = new URL(externalBase);
-          if (url.hostname === 'mtumrah.com') {
-            url.hostname = 'www.mtumrah.com';
-            normalizedExternalBase = url.toString().replace(/\/$/, '');
-          } else {
-            normalizedExternalBase = externalBase.replace(/\/$/, '');
-          }
-        } catch {
-          // If not a valid URL, keep as is
-          normalizedExternalBase = externalBase.replace(/\/$/, '');
-        }
-      }
-      
-      const externalUrl = normalizedExternalBase ? `${normalizedExternalBase}/inquiries` : undefined;
-
-      const { data } = await http.get(externalUrl || '/api/inquiries');
+      // Always fetch from our backend to get inquiries with assignments from MongoDB
+      // Our backend syncs inquiries from external system and stores them with assignments
+      const { data } = await http.get('/api/inquiries');
       const raw = Array.isArray(data) ? data : data?.data || data?.inquiries || [];
 
       const mapped: Inquiry[] = (raw as any[]).map((i) => {
         const id = idOf(i)!;
-        const agentId = idOf(i?.assignedAgent) || i?.agentId;
-        const agentName = i?.assignedAgent?.name || i?.agentName;
+        // Handle assignedAgent - it might be an object with _id and name (populated) or just an ID
+        const assignedAgent = i?.assignedAgent;
+        const agentId = assignedAgent?._id ? idOf(assignedAgent._id) : (assignedAgent?.id ? idOf(assignedAgent.id) : (idOf(assignedAgent) || i?.agentId));
+        const agentName = assignedAgent?.name || i?.agentName || '';
 
         // Preserve all fields including flat package fields that might exist in database
         return {

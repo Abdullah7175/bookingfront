@@ -92,10 +92,29 @@ function mapInquiry(i: any): UiInquiry {
     // Still use it for display, but API calls may fail
     // The backend will try to find by externalId as fallback
   }
-  // Handle both assignedAgent as object and string
+  // Handle both assignedAgent as object (populated) and string/ID
   const assignedAgent = i?.assignedAgent;
-  const agentId = assignedAgent?._id || assignedAgent?.id || i?.agentId || assignedAgent || null;
-  const agentName = assignedAgent?.name || i?.agentName || '';
+  let agentId: string | null = null;
+  let agentName = '';
+  
+  if (assignedAgent) {
+    // If populated object (has _id or id and name)
+    if (typeof assignedAgent === 'object' && !Array.isArray(assignedAgent)) {
+      agentId = assignedAgent._id ? String(assignedAgent._id) : (assignedAgent.id ? String(assignedAgent.id) : null);
+      agentName = assignedAgent.name || '';
+    } else if (typeof assignedAgent === 'string') {
+      // If just an ID string
+      agentId = assignedAgent;
+    }
+  }
+  
+  // Fallback to top-level fields
+  if (!agentId) {
+    agentId = i?.agentId ? String(i.agentId) : null;
+  }
+  if (!agentName) {
+    agentName = i?.agentName || '';
+  }
   
   // Handle package details - check both nested packageDetails and flat fields from database
   let packageDetails = i?.packageDetails || null;
