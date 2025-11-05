@@ -198,13 +198,74 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           agentName = i?.agentName || '';
         }
 
+        // Preserve packageDetails - handle both nested structure and ensure it's properly formatted
+        let packageDetails = i?.packageDetails || null;
+        
+        // Debug: Log raw packageDetails from backend
+        if (i?.packageDetails) {
+          console.log('Raw packageDetails from backend:', i.packageDetails, 'for inquiry:', id);
+        }
+        
+        // If packageDetails exists but is an empty object, set to null
+        if (packageDetails && typeof packageDetails === 'object' && Object.keys(packageDetails).length === 0) {
+          packageDetails = null;
+        }
+        
+        // If packageDetails exists but doesn't have packageName, try to construct from flat fields
+        if (!packageDetails || (packageDetails && !packageDetails.packageName)) {
+          if (i?.package_name || i?.packageName) {
+            packageDetails = {
+              packageName: i?.packageName || i?.package_name || null,
+              pricing: {
+                double: i?.price_double || i?.pricing?.double || null,
+                triple: i?.price_triple || i?.pricing?.triple || null,
+                quad: i?.price_quad || i?.pricing?.quad || null,
+                currency: i?.currency || i?.pricing?.currency || 'USD',
+              },
+              duration: {
+                nightsMakkah: i?.nights_makkah || i?.duration?.nightsMakkah || i?.duration?.nights_makkah || null,
+                nightsMadina: i?.nights_madina || i?.duration?.nightsMadina || i?.duration?.nights_madina || null,
+                totalNights: i?.total_nights || i?.duration?.totalNights || i?.duration?.total_nights || null,
+              },
+              hotels: {
+                makkah: i?.hotel_makkah || i?.hotels?.makkah || null,
+                madina: i?.hotel_madina || i?.hotels?.madina || null,
+              },
+              services: {
+                transportation: i?.transportation || i?.services?.transportation || null,
+                visa: i?.visa_service || i?.services?.visa || null,
+              },
+              inclusions: {
+                breakfast: Boolean(i?.breakfast || i?.inclusions?.breakfast || false),
+                dinner: Boolean(i?.dinner || i?.inclusions?.dinner || false),
+                visa: Boolean(i?.visa_included || i?.inclusions?.visa || false),
+                ticket: Boolean(i?.ticket || i?.inclusions?.ticket || false),
+                roundtrip: Boolean(i?.roundtrip || i?.inclusions?.roundtrip || false),
+                ziyarat: Boolean(i?.ziyarat || i?.inclusions?.ziyarat || false),
+                guide: Boolean(i?.guide || i?.inclusions?.guide || false),
+              },
+            };
+            // Only include if packageName exists
+            if (!packageDetails.packageName) {
+              packageDetails = null;
+            }
+          } else {
+            packageDetails = null;
+          }
+        }
+        
+        // Debug: Log final packageDetails before returning
+        if (packageDetails && packageDetails.packageName) {
+          console.log('Final packageDetails being set:', packageDetails, 'for inquiry:', id);
+        }
+        
         // Preserve all fields including flat package fields that might exist in database
         return {
           ...i, // Spread all fields to preserve flat package fields (package_name, price_double, etc.)
           id,
           agentId,
           agentName,
-          packageDetails: i?.packageDetails || null, // Preserve nested package details if present
+          packageDetails: packageDetails, // Use normalized packageDetails
         } as Inquiry;
       });
 

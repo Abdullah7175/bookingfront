@@ -151,6 +151,17 @@ function mapInquiry(i: any): UiInquiry {
   // Handle package details - check both nested packageDetails and flat fields from database
   let packageDetails = i?.packageDetails || null;
   
+  // Debug: Log what we receive
+  if (i?.packageDetails) {
+    console.log('mapInquiry - Received packageDetails:', i.packageDetails, 'for inquiry:', inquiryId);
+  }
+  
+  // If packageDetails exists but is empty or doesn't have packageName, try to rebuild it
+  if (packageDetails && (!packageDetails.packageName || Object.keys(packageDetails).length === 0)) {
+    console.log('mapInquiry - packageDetails exists but is invalid, resetting:', packageDetails);
+    packageDetails = null; // Reset to null so we can try to reconstruct
+  }
+  
   // If no nested packageDetails but we have flat fields, construct packageDetails object
   if (!packageDetails && (i?.package_name || i?.packageName)) {
     packageDetails = {
@@ -186,9 +197,16 @@ function mapInquiry(i: any): UiInquiry {
     };
     
     // Only include if packageName exists
-    if (!packageDetails.packageName) {
+    if (!packageDetails || !packageDetails.packageName) {
       packageDetails = null;
     }
+  }
+  
+  // Debug: Log packageDetails if it exists (for troubleshooting)
+  if (packageDetails && packageDetails.packageName) {
+    console.log('mapInquiry - Final packageDetails:', packageDetails, 'for inquiry:', inquiryId);
+  } else if (i?.packageDetails) {
+    console.log('mapInquiry - packageDetails exists but packageName missing:', i.packageDetails);
   }
   
   return {
